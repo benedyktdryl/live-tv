@@ -1,0 +1,10 @@
+{
+  "name": "live-tv",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "addon": "bun packages/addon/src/index.ts",
+    "cli": "bun packages/cli/src/index.ts",
+    "dev": "bun packages/addon/src/index.ts"
+  }
+}

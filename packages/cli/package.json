@@ -1,0 +1,16 @@
+{
+  "name": "@live-tv/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "livetv": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "@live-tv/core": "workspace:*"
+  }
+}
