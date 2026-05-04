@@ -6,6 +6,16 @@
     "addon": "bun packages/addon/src/index.ts",
     "cli": "bun packages/cli/src/index.ts",
     "dev": "bun packages/addon/src/index.ts",
-    "test": "bun test packages/core/src/scraper.test.ts --timeout 30000"
+    "test": "bun test packages/core/src/scraper.test.ts --timeout 30000",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint packages/",
+    "format": "oxfmt packages/",
+    "format:check": "oxfmt --check packages/"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13",
+    "oxfmt": "^0.47.0",
+    "oxlint": "^1.62.0",
+    "typescript": "^6.0.3"
   }
 }

@@ -1,13 +1,13 @@
 {
-  "name": "@live-tv/addon",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "start": "bun src/index.ts"
-  },
-  "dependencies": {
-    "@live-tv/core": "workspace:*",
-    "stremio-addon-sdk": "^1.6.10"
-  }
+	"name": "@live-tv/addon",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "bun src/index.ts"
+	},
+	"dependencies": {
+		"@live-tv/core": "workspace:*",
+		"stremio-addon-sdk": "^1.6.10"
+	}
 }
