@@ -5,6 +5,7 @@
   "scripts": {
     "addon": "bun packages/addon/src/index.ts",
     "cli": "bun packages/cli/src/index.ts",
-    "dev": "bun packages/addon/src/index.ts"
+    "dev": "bun packages/addon/src/index.ts",
+    "test": "bun test packages/core/src/scraper.test.ts --timeout 30000"
   }
 }
