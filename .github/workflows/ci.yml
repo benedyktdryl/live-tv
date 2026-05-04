@@ -28,7 +28,9 @@ jobs:
         run: bun run lint
 
       - name: Format check (oxfmt)
-        run: bun run format:check
+        run: |
+          bun run format
+          git diff --exit-code || (echo "::error::Run 'bun run format' locally and commit the result." && exit 1)
 
       - name: Test
         run: bun run test
