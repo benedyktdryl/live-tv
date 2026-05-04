@@ -16,18 +16,83 @@ import {
   CATEGORIES,
 } from "@live-tv/core";
 import type { LiveEvent } from "@live-tv/core";
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// @clack/prompts exports Option<V> but not under that name publicly, so define locally
 type SelectOption<V> = { value: V; label: string; hint?: string };
+
+// ─── Help ─────────────────────────────────────────────────────────────────────
+
+function cmdHelp() {
+  const c = {
+    bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+    dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+    cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+    green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+    yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
+  };
+
+  console.log(`
+${c.bold("LiveTV.sx")}  ${c.dim("— ad-free sports streaming CLI")}
+
+${c.bold("USAGE")}
+  ${c.cyan("bun run cli")}                              Interactive picker
+  ${c.cyan("bun run cli list")}                         Print all events as JSON
+  ${c.cyan("bun run cli list --sport")} ${c.yellow("<category>")}      Filter by sport category
+  ${c.cyan("bun run cli list --date")}  ${c.yellow("<day>")}           Filter by day
+  ${c.cyan("bun run cli watch")} ${c.yellow("<event-id>")}             Open best stream in VLC
+  ${c.cyan("bun run cli streams")} ${c.yellow("<event-id>")}           Print resolved stream URLs as JSON
+  ${c.cyan("bun run cli config")}                       Set default sport (saved to prefs)
+  ${c.cyan("bun run cli help")}                         Show this help
+
+${c.bold("LIST FLAGS")}
+  ${c.yellow("--sport")} ${c.dim("<category>")}   Match category name or raw sport string (case-insensitive)
+                   ${c.dim("Examples:")} --sport football  --sport tennis  --sport mlb
+  ${c.yellow("--date")}  ${c.dim("<day>")}        today | tomorrow | YYYY-MM-DD
+                   ${c.dim("Examples:")} --date today  --date tomorrow  --date 2026-05-06
+  ${c.dim("Flags can be combined:")}  bun run cli list --sport football --date today
+
+${c.bold("SPORT CATEGORIES")}
+  ${CATEGORIES.map((c2) => `${c2.emoji} ${c2.name}`).join("   ")}
+  🏅 Other
+
+${c.bold("INTERACTIVE MODE")}  ${c.dim("(no arguments)")}
+  ${c.dim("Step 1")}  Sport filter  — choose a category or All sports
+  ${c.dim("Step 2")}  Day filter    — choose Today / Tomorrow / … or All days
+  ${c.dim("Step 3")}  Search        — optional name filter (shown when >100 events match)
+  ${c.dim("Step 4")}  Event list    — live events shown first, then sorted by time
+  ${c.dim("Step 5")}  Stream picker — AceStream → VLC, YouTube → VLC, web embed → browser
+  ${c.dim("tip:")} Run ${c.cyan("bun run cli config")} to set a default sport that is pre-selected.
+
+${c.bold("STREAM PRIORITY")}
+  1. ${c.green("AceStream")}   Best quality. Needs engine: ${c.cyan("docker compose up -d")}
+  2. ${c.green("YouTube")}     Direct HLS in VLC
+  3. ${c.green("Web embed")}   HLS extracted where possible, otherwise opens in browser
+
+${c.bold("ACESTREAM SETUP")}
+  ${c.dim("Via Docker (recommended):")}
+    docker compose up -d
+  ${c.dim("Manual:")}
+    https://acestream.org
+
+${c.bold("ENVIRONMENT")}
+  ${c.yellow("LIVETV_BASE_URL")}    Override scrape base URL  ${c.dim("(default: https://livetv.sx)")}
+  ${c.yellow("ACE_ENGINE_HOST")}    AceStream engine host     ${c.dim("(default: 127.0.0.1)")}
+  ${c.yellow("ACE_ENGINE_PORT")}    AceStream engine port     ${c.dim("(default: 6878)")}
+`);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatEvent(event: LiveEvent): string {
   const parts: string[] = [];
+  if (event.isLive) {
+    parts.push("🔴");
+  } else if (event.date) {
+    parts.push(dayLabel(event.date));
+  }
   if (event.time) parts.push(event.time);
   parts.push(event.name);
   if (event.score) parts.push(`[${event.score}]`);
   if (event.sport) parts.push(`(${event.sport})`);
-  if (event.isLive) parts.push("🔴");
   return parts.join("  ");
 }
 
@@ -145,16 +210,14 @@ async function cmdConfig() {
 
   p.intro("LiveTV.sx — Preferences");
 
-  const categoryNames = CATEGORIES.map((c) => c.name);
-
   const choice = await p.select({
     message: "Default sport category (shown first in interactive mode):",
     options: [
-      { value: null, label: "(none — show all)", hint: "No preference set" },
-      ...categoryNames.map((name) => ({
+      { value: null, label: "(none — show all sports)", hint: "No preference set" },
+      ...CATEGORIES.map(({ name, emoji }) => ({
         value: name,
-        label: `${CATEGORIES.find((c) => c.name === name)?.emoji ?? ""} ${name}`,
-        hint: prefs.defaultCategory === name ? "current" : undefined,
+        label: `${emoji} ${name}`,
+        hint: prefs.defaultCategory === name ? "current default" : undefined,
       })),
     ],
   });
@@ -165,21 +228,115 @@ async function cmdConfig() {
   }
 
   savePrefs({ ...prefs, defaultCategory: choice as string | null });
-  p.outro(`Saved. Default: ${choice ?? "none"}`);
+  p.outro(`Saved. Default sport: ${choice ?? "none"}`);
 }
 
-// ─── Interactive mode ─────────────────────────────────────────────────────────
+// ─── Interactive helpers ───────────────────────────────────────────────────────
+
+/** Ask the user to pick a sport category. Returns category name, "all", or "config". */
+async function pickSport(
+  allEvents: LiveEvent[],
+  prefs: ReturnType<typeof loadPrefs>,
+): Promise<string | null> {
+  const byCategory = groupByCategory(allEvents);
+
+  const categoryOrder = [...byCategory.keys()];
+  if (prefs.defaultCategory && byCategory.has(prefs.defaultCategory)) {
+    const idx = categoryOrder.indexOf(prefs.defaultCategory);
+    if (idx > 0) {
+      categoryOrder.splice(idx, 1);
+      categoryOrder.unshift(prefs.defaultCategory);
+    }
+  }
+
+  const options: SelectOption<string>[] = [
+    {
+      value: "all",
+      label: `📋 All sports  (${allEvents.length} events, ${liveCount(allEvents)} live)`,
+    },
+    ...categoryOrder.map((catName) => {
+      const events = byCategory.get(catName)!;
+      const live = liveCount(events);
+      const emoji = CATEGORIES.find((c) => c.name === catName)?.emoji ?? "🏅";
+      const isDefault = catName === prefs.defaultCategory;
+      return {
+        value: catName,
+        label: `${emoji} ${catName}  (${events.length} events${live > 0 ? `, ${live} live` : ""})`,
+        hint: isDefault ? "★ your default" : undefined,
+      };
+    }),
+    { value: "config", label: "⚙  Preferences", hint: "set a default sport" },
+  ];
+
+  const choice = await p.select({ message: "Filter by sport:", options });
+  if (p.isCancel(choice)) return null;
+  return choice as string;
+}
+
+/** Ask the user to pick a day. Returns ISO date string, "all", or null on cancel. */
+async function pickDay(events: LiveEvent[]): Promise<string | null> {
+  const byDate = groupByDate(events);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const sortedDates = [...byDate.keys()].filter(Boolean).sort();
+
+  const options: SelectOption<string>[] = [
+    {
+      value: "all",
+      label: `📅 All days  (${events.length} events, ${liveCount(events)} live)`,
+    },
+  ];
+
+  // Live/undated events bucket
+  const undated = byDate.get("") ?? [];
+  if (undated.length > 0) {
+    options.push({
+      value: "undated",
+      label: `📅 Today — live now  (${undated.length} events)`,
+    });
+  }
+
+  for (const d of sortedDates) {
+    const dayEvents = byDate.get(d)!;
+    const live = liveCount(dayEvents);
+    const isToday = d === todayStr;
+    const label = isToday ? `📅 Today  — ${d}` : `📅 ${dayLabel(d)}  — ${d}`;
+    options.push({
+      value: d,
+      label: `${label}  (${dayEvents.length} events${live > 0 ? `, ${live} live` : ""})`,
+    });
+  }
+
+  const choice = await p.select({ message: "Filter by day:", options });
+  if (p.isCancel(choice)) return null;
+  return choice as string;
+}
+
+/** Optional text search when the list is large. Returns the filtered array. */
+async function maybeSearch(events: LiveEvent[], threshold = 100): Promise<LiveEvent[] | null> {
+  if (events.length <= threshold) return events;
+
+  const input = await p.text({
+    message: `${events.length} events — search by name or sport (leave blank to show all):`,
+    placeholder: "e.g. Premier League or Manchester",
+  });
+  if (p.isCancel(input)) return null;
+  if (!input || !input.trim()) return events;
+
+  const q = input.trim().toLowerCase();
+  return events.filter(
+    (e) => e.name.toLowerCase().includes(q) || e.sport.toLowerCase().includes(q),
+  );
+}
 
 async function pickEvent(events: LiveEvent[]): Promise<string | null> {
   if (events.length === 0) {
-    p.log.warn("No events in this selection.");
+    p.log.warn("No events match the selected filters.");
     return null;
   }
 
   const sorted = sortEvents(events);
-
   const choice = await p.select({
-    message: "Select an event:",
+    message: `Select an event  (${sorted.length} shown):`,
     options: sorted.map((e) => ({
       value: e.id,
       label: formatEvent(e),
@@ -248,6 +405,8 @@ async function pickStream(eventId: string, aceAvailable: boolean): Promise<void>
   p.outro("Enjoy the match!");
 }
 
+// ─── Interactive mode ─────────────────────────────────────────────────────────
+
 async function interactive() {
   p.intro("LiveTV.sx — Sports Stream Picker");
 
@@ -278,160 +437,58 @@ async function interactive() {
     process.exit(0);
   }
 
-  // ── Step 1: Browse mode ───────────────────────────────────────────────────
+  // ── Step 1: Sport filter ──────────────────────────────────────────────────
 
-  const byCategory = groupByCategory(allEvents);
-  const byDate = groupByDate(allEvents);
-
-  // Build category options ordered: default first, then rest, then day-browse + all
-  const catOptions: SelectOption<string>[] = [];
-
-  const categoryOrder = [...byCategory.keys()];
-  // Move default category to top
-  if (prefs.defaultCategory && byCategory.has(prefs.defaultCategory)) {
-    const idx = categoryOrder.indexOf(prefs.defaultCategory);
-    if (idx > 0) {
-      categoryOrder.splice(idx, 1);
-      categoryOrder.unshift(prefs.defaultCategory);
-    }
-  }
-
-  for (const catName of categoryOrder) {
-    const events = byCategory.get(catName)!;
-    const live = liveCount(events);
-    const def = catName === prefs.defaultCategory;
-    const emoji = CATEGORIES.find((c) => c.name === catName)?.emoji ?? "🏅";
-    catOptions.push({
-      value: `cat:${catName}`,
-      label: `${emoji} ${catName}  (${events.length} events${live > 0 ? `, ${live} live` : ""})`,
-      hint: def ? "★ your default" : undefined,
-    });
-  }
-
-  // Separator-style entries for day browsing and all events
-  const sortedDates = [...byDate.keys()].filter(Boolean).sort();
-  catOptions.push({
-    value: "day",
-    label: `📅 Browse by day  (${sortedDates.length} days available)`,
-  });
-  catOptions.push({
-    value: "all",
-    label: `📋 All events  (${allEvents.length} total)`,
-  });
-  catOptions.push({
-    value: "config",
-    label: `⚙  Preferences`,
-  });
-
-  const browseChoice = await p.select({
-    message: "What do you want to watch?",
-    options: catOptions,
-  });
-
-  if (p.isCancel(browseChoice)) {
+  const sportChoice = await pickSport(allEvents, prefs);
+  if (!sportChoice) {
     p.cancel("Cancelled.");
     process.exit(0);
   }
 
-  let filteredEvents: LiveEvent[];
-
-  if (browseChoice === "config") {
+  if (sportChoice === "config") {
     await cmdConfig();
     process.exit(0);
-  } else if (browseChoice === "all") {
-    filteredEvents = allEvents;
-  } else if (browseChoice === "day") {
-    // ── Step 1b: Day picker ───────────────────────────────────────────────
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const dayOptions: SelectOption<string>[] = [
-      {
-        value: "all-days",
-        label: `📅 All days  (${allEvents.length} events)`,
-      },
-      ...sortedDates.map((d) => {
-        const dayEvents = byDate.get(d)!;
-        const live = liveCount(dayEvents);
-        const label = `${d === todayStr ? "📅 Today" : `📅 ${dayLabel(d)}`}  — ${d}`;
-        return {
-          value: d,
-          label: `${label}  (${dayEvents.length} events${live > 0 ? `, ${live} live` : ""})`,
-        };
-      }),
-    ];
-
-    // Add events without parsed date under "today" label
-    const undated = byDate.get("") ?? [];
-    if (undated.length > 0) {
-      dayOptions.splice(1, 0, {
-        value: "undated",
-        label: `📅 Today (live now)  (${undated.length} events)`,
-      });
-    }
-
-    const dayChoice = await p.select({
-      message: "Select a day:",
-      options: dayOptions,
-    });
-
-    if (p.isCancel(dayChoice)) {
-      p.cancel("Cancelled.");
-      process.exit(0);
-    }
-
-    if (dayChoice === "all-days") {
-      filteredEvents = allEvents;
-    } else if (dayChoice === "undated") {
-      filteredEvents = undated;
-    } else {
-      filteredEvents = byDate.get(dayChoice as string) ?? [];
-    }
-
-    // ── Step 1c (optional): Sport filter within the day ───────────────────
-    if (filteredEvents.length > 15) {
-      const dayCats = groupByCategory(filteredEvents);
-      const sportOptions: SelectOption<string>[] = [
-        {
-          value: "all",
-          label: `📋 All  (${filteredEvents.length} events)`,
-        },
-        ...[...dayCats.entries()].map(([name, evts]) => {
-          const emoji = CATEGORIES.find((c) => c.name === name)?.emoji ?? "🏅";
-          const live = liveCount(evts);
-          return {
-            value: name,
-            label: `${emoji} ${name}  (${evts.length}${live > 0 ? `, ${live} live` : ""})`,
-          };
-        }),
-      ];
-
-      const sportChoice = await p.select({
-        message: "Filter by sport:",
-        options: sportOptions,
-      });
-
-      if (p.isCancel(sportChoice)) {
-        p.cancel("Cancelled.");
-        process.exit(0);
-      }
-
-      if (sportChoice !== "all") {
-        filteredEvents = dayCats.get(sportChoice as string) ?? filteredEvents;
-      }
-    }
-  } else {
-    // Sport category was picked directly
-    const catName = (browseChoice as string).replace("cat:", "");
-    filteredEvents = byCategory.get(catName) ?? allEvents;
   }
 
-  // ── Step 2: Event picker ──────────────────────────────────────────────────
-  const eventId = await pickEvent(filteredEvents);
+  const sportFiltered =
+    sportChoice === "all" ? allEvents : (groupByCategory(allEvents).get(sportChoice) ?? allEvents);
+
+  // ── Step 2: Day filter ────────────────────────────────────────────────────
+
+  const dayChoice = await pickDay(sportFiltered);
+  if (!dayChoice) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
+
+  let filtered: LiveEvent[];
+  if (dayChoice === "all") {
+    filtered = sportFiltered;
+  } else if (dayChoice === "undated") {
+    filtered = groupByDate(sportFiltered).get("") ?? [];
+  } else {
+    filtered = groupByDate(sportFiltered).get(dayChoice) ?? [];
+  }
+
+  // ── Step 3: Optional search ───────────────────────────────────────────────
+
+  const searched = await maybeSearch(filtered);
+  if (!searched) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
+  filtered = searched;
+
+  // ── Step 4: Event picker ──────────────────────────────────────────────────
+
+  const eventId = await pickEvent(filtered);
   if (!eventId) {
     p.cancel("Cancelled.");
     process.exit(0);
   }
 
-  // ── Step 3: Stream picker ─────────────────────────────────────────────────
+  // ── Step 5: Stream picker ─────────────────────────────────────────────────
+
   await pickStream(eventId, aceAvailable);
 }
 
@@ -439,7 +496,6 @@ async function interactive() {
 
 const [, , command, ...args] = process.argv;
 
-// Parse simple --flag value pairs from args
 function parseFlag(flag: string): string | undefined {
   const idx = args.indexOf(flag);
   return idx !== -1 ? args[idx + 1] : undefined;
@@ -454,20 +510,25 @@ switch (command) {
     break;
   case "watch":
     if (!args[0]) {
-      console.error("Usage: livetv watch <event-id>");
+      console.error("Usage: livetv watch <event-id>\nRun `livetv help` for all commands.");
       process.exit(1);
     }
     await cmdWatch(args[0]);
     break;
   case "streams":
     if (!args[0]) {
-      console.error("Usage: livetv streams <event-id>");
+      console.error("Usage: livetv streams <event-id>\nRun `livetv help` for all commands.");
       process.exit(1);
     }
     await cmdStreams(args[0]);
     break;
   case "config":
     await cmdConfig();
+    break;
+  case "help":
+  case "--help":
+  case "-h":
+    cmdHelp();
     break;
   default:
     await interactive();
