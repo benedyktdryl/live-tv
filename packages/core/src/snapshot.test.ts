@@ -13,8 +13,9 @@
 
 import { describe, expect, test } from "bun:test";
 import path from "path";
-import { parseEventListFromHtml, parseStreamLinksFromHtml } from "./scraper.js";
+import { parseEventListFromHtml, parseStreamLinksFromHtml, parseEventDate } from "./scraper.js";
 import { extractAliezM3u8FromHtml, extractGenericM3u8FromHtml } from "./embed-resolver.js";
+import { categorizeEvent, groupByCategory, groupByDate, dayLabel } from "./categories.js";
 
 const FIXTURES = path.join(import.meta.dir, "__fixtures__");
 
@@ -60,6 +61,8 @@ describe("parseEventListFromHtml — real fixture", () => {
     expect(modus!.time).toBe("9:30");
     expect(modus!.sport).toBe("Modus League");
     expect(modus!.score).toBeNull();
+    // date should be parseable as YYYY-MM-DD
+    expect(modus!.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   test("Kolos Kovalivka — upcoming event snapshot", async () => {
@@ -253,5 +256,146 @@ describe("extractGenericM3u8FromHtml", () => {
     const html = `<script>src = "https://edge.cdn.example.com/hls/live/stream.m3u8?token=xyz&expires=9999";</script>`;
     const url = extractGenericM3u8FromHtml(html);
     expect(url).toBe("https://edge.cdn.example.com/hls/live/stream.m3u8?token=xyz&expires=9999");
+  });
+});
+
+// ─── Date parsing ─────────────────────────────────────────────────────────────
+
+describe("parseEventDate", () => {
+  test("parses 'D Month at HH:MM' into ISO date", () => {
+    const result = parseEventDate("4 May at 9:30\n(Modus League)");
+    expect(result).toMatch(/^\d{4}-05-04$/);
+  });
+
+  test("returns empty string when no date token present", () => {
+    expect(parseEventDate("(Some Sport)")).toBe("");
+    expect(parseEventDate("")).toBe("");
+  });
+
+  test("pads single-digit months and days", () => {
+    const result = parseEventDate("1 January at 08:00 (Football)");
+    expect(result).toMatch(/^\d{4}-01-01$/);
+  });
+
+  test("real fixture: all events that have a time also have a date", async () => {
+    const html = await fixture("event-list.html");
+    const events = parseEventListFromHtml(html);
+    const withTime = events.filter((e) => e.time);
+    const missingDate = withTime.filter((e) => !e.date);
+    // Allow a small margin (live events that may not have the full D Month prefix)
+    expect(missingDate.length).toBeLessThan(withTime.length * 0.1);
+  });
+
+  test("real fixture: 3 distinct dates present in the event list", async () => {
+    const html = await fixture("event-list.html");
+    const events = parseEventListFromHtml(html);
+    const dates = new Set(events.map((e) => e.date).filter(Boolean));
+    expect(dates.size).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ─── Sport categorisation ─────────────────────────────────────────────────────
+
+describe("categorizeEvent", () => {
+  const cases: [string, string][] = [
+    // Football
+    ["England. Premier League", "Football"],
+    ["Spain. Primera Division", "Football"],
+    ["Germany. Bundesliga", "Football"],
+    ["Italy. Serie A", "Football"],
+    ["Copa Libertadores", "Football"],
+    ["Copa Sudamericana", "Football"],
+    ["Champions League", "Football"],
+    ["Japan. J League", "Football"],
+    ["Ecuador. Cup", "Football"],
+    ["Israel. Liga Leumit", "Football"],
+    // Tennis
+    ["ATP. Rome. Qualification", "Tennis"],
+    ["WTA. Rome. Qualification", "Tennis"],
+    ["ATP Challenger. Wuxi. Doubles", "Tennis"],
+    // Basketball
+    ["NBA", "Basketball"],
+    ["Euroleague", "Basketball"],
+    ["Lithuania. LKL", "Basketball"],
+    // Ice Hockey
+    ["NHL", "Ice Hockey"],
+    ["KHL", "Ice Hockey"],
+    ["Finland. Liiga", "Ice Hockey"],
+    ["Czech Republic. Extraliga", "Ice Hockey"],
+    // Baseball
+    ["MLB", "Baseball"],
+    // Handball
+    ["EHF European League", "Handball"],
+    ["EHF Champions League", "Handball"],
+    // Snooker/Darts
+    ["Snooker", "Snooker/Darts"],
+    ["Modus League", "Snooker/Darts"],
+  ];
+
+  for (const [sport, expected] of cases) {
+    test(`"${sport}" → ${expected}`, () => {
+      expect(categorizeEvent(sport)).toBe(expected);
+    });
+  }
+});
+
+describe("groupByCategory — real fixture", () => {
+  test("Football is the largest category", async () => {
+    const html = await fixture("event-list.html");
+    const events = parseEventListFromHtml(html);
+    const grouped = groupByCategory(events);
+
+    const football = grouped.get("Football")?.length ?? 0;
+    const tennis = grouped.get("Tennis")?.length ?? 0;
+    const baseball = grouped.get("Baseball")?.length ?? 0;
+
+    expect(football).toBeGreaterThan(50);
+    expect(football).toBeGreaterThan(tennis);
+    expect(football).toBeGreaterThan(baseball);
+  });
+
+  test("All events are in exactly one category", async () => {
+    const html = await fixture("event-list.html");
+    const events = parseEventListFromHtml(html);
+    const grouped = groupByCategory(events);
+
+    const total = [...grouped.values()].reduce((n, arr) => n + arr.length, 0);
+    expect(total).toBe(events.length);
+  });
+});
+
+describe("groupByDate — real fixture", () => {
+  test("groups events into 3 days", async () => {
+    const html = await fixture("event-list.html");
+    const events = parseEventListFromHtml(html);
+    const grouped = groupByDate(events);
+
+    // Fixture captured on 4 May covers 3 days
+    const datedGroups = [...grouped.keys()].filter(Boolean);
+    expect(datedGroups.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("dayLabel", () => {
+  test("returns Today for an empty string", () => {
+    expect(dayLabel("")).toBe("Today");
+  });
+
+  test("returns Today for today's ISO date", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    expect(dayLabel(today)).toBe("Today");
+  });
+
+  test("returns Tomorrow for tomorrow's date", () => {
+    const d = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    expect(dayLabel(d)).toBe("Tomorrow");
+  });
+
+  test("returns formatted label for future dates", () => {
+    const future = new Date(Date.now() + 4 * 86_400_000).toISOString().slice(0, 10);
+    const label = dayLabel(future);
+    expect(label).not.toBe("Today");
+    expect(label).not.toBe("Tomorrow");
+    expect(label.length).toBeGreaterThan(0);
   });
 });

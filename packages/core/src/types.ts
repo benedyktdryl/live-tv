@@ -3,7 +3,10 @@ export interface LiveEvent {
   name: string;
   slug: string;
   sport: string;
+  /** HH:MM start time, or "" when not parseable */
   time: string;
+  /** ISO date "YYYY-MM-DD", or "" when not parseable */
+  date: string;
   score: string | null;
   isLive: boolean;
   url: string;

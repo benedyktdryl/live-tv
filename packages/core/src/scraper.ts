@@ -30,6 +30,40 @@ function extractEventId(href: string): string {
   return match ? match[1] : href;
 }
 
+const MONTH_ABBREVS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+];
+
+/**
+ * Parse an ISO date string from evdesc text like "4 May at 9:30 (Sport)".
+ * Returns "YYYY-MM-DD" or "" when the date cannot be determined.
+ * Exported for snapshot testing.
+ */
+export function parseEventDate(evdesc: string): string {
+  const m = evdesc.match(/(\d{1,2}) ([A-Za-z]+) at /);
+  if (!m) return "";
+  const day = parseInt(m[1], 10);
+  const monthIdx = MONTH_ABBREVS.findIndex((abbr) => m[2].toLowerCase().startsWith(abbr));
+  if (monthIdx === -1) return "";
+  const now = new Date();
+  let year = now.getFullYear();
+  // If the parsed month is earlier than current month by more than one,
+  // the event is likely in the next calendar year (e.g., January scraped in December).
+  if (monthIdx < now.getMonth() - 1) year += 1;
+  return `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 /**
  * Extract event metadata from the <td> containing the anchor.
  *
@@ -42,33 +76,29 @@ function extractEventId(href: string): string {
  *     <br>
  *     <span class="evdesc">HH:MM (Tournament)</span>
  *   </td>
- *
- * The containing <tr> also has a sibling <td> with:
- *   <img alt="Sport. League" src="//cdn.../icons/xx.gif">
  */
 function extractEventMeta(td: ReturnType<typeof parse>): {
   sport: string;
   time: string;
+  date: string;
   score: string | null;
   isLive: boolean;
 } {
-  // Truly live = row contains the live.gif indicator image
   const isLive = td.innerHTML.includes("live.gif");
 
   const evdesc = td.querySelector(".evdesc");
   const raw = evdesc?.text?.trim() ?? "";
 
   // evdesc format: "D Month at HH:MM\n(Tournament Name)"
-  // The time follows " at " keyword
   const timeMatch = raw.match(/at (\d{1,2}:\d{2})/);
   const time = timeMatch ? timeMatch[1] : "";
 
-  // Tournament in parentheses
+  const date = parseEventDate(raw);
+
   const sportMatch = raw.match(/\(([^)]+)\)/);
   const sport = sportMatch ? sportMatch[1] : "";
 
-  // Scores are JS-rendered and not present in raw HTML — skip
-  return { sport, time, score: null, isLive };
+  return { sport, time, date, score: null, isLive };
 }
 
 /**
@@ -103,6 +133,7 @@ export function parseEventListFromHtml(html: string, baseUrl = BASE_URL): LiveEv
       slug,
       sport: meta.sport,
       time: meta.time,
+      date: meta.date,
       score: meta.score,
       isLive: meta.isLive,
       url: `${baseUrl}${href}`,
@@ -214,6 +245,7 @@ export async function fetchEventDetail(eventId: string): Promise<EventDetail | n
     slug: eventId,
     sport,
     time: "",
+    date: "",
     score: null,
     isLive: streams.length > 0,
     url,

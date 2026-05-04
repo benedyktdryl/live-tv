@@ -97,9 +97,9 @@ builder.defineCatalogHandler(
       poster: event.posterUrl ?? undefined,
       genres: event.sport ? [event.sport] : [],
       description: [
+        event.isLive ? "🔴 LIVE" : event.date ? `📅 ${event.date}` : "⏳ Upcoming",
         event.time ? `⏰ ${event.time}` : null,
         event.score ? `🏆 ${event.score}` : null,
-        event.isLive ? "🔴 LIVE" : "⏳ Upcoming",
       ]
         .filter(Boolean)
         .join("  "),
