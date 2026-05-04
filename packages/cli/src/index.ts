@@ -19,6 +19,70 @@ import type { LiveEvent } from "@live-tv/core";
 // @clack/prompts exports Option<V> but not under that name publicly, so define locally
 type SelectOption<V> = { value: V; label: string; hint?: string };
 
+// ─── Filter presets ───────────────────────────────────────────────────────────
+
+interface FilterPreset {
+  /** Category name ("Football", "Tennis", …) or "all" */
+  sport: string;
+  /** ISO date "YYYY-MM-DD", "all", or "undated" */
+  day: string;
+  /** Optional free-text search query */
+  search?: string;
+}
+
+function encodePreset(preset: FilterPreset): string {
+  return Buffer.from(JSON.stringify(preset)).toString("base64url");
+}
+
+function decodePreset(code: string): FilterPreset | null {
+  try {
+    const raw = Buffer.from(code, "base64url").toString("utf8");
+    const obj = JSON.parse(raw);
+    if (typeof obj.sport !== "string" || typeof obj.day !== "string") return null;
+    return obj as FilterPreset;
+  } catch {
+    return null;
+  }
+}
+
+function describePreset(preset: FilterPreset): string {
+  const parts: string[] = [];
+  if (preset.sport !== "all") parts.push(preset.sport);
+  if (preset.day === "all") {
+    parts.push("all days");
+  } else if (preset.day === "undated") {
+    parts.push("live now");
+  } else {
+    parts.push(dayLabel(preset.day));
+  }
+  if (preset.search) parts.push(`"${preset.search}"`);
+  return parts.join(" · ");
+}
+
+/** Apply a FilterPreset to an event array and return the matching subset. */
+function applyPreset(events: LiveEvent[], preset: FilterPreset): LiveEvent[] {
+  let result = events;
+
+  if (preset.sport !== "all") {
+    result = groupByCategory(result).get(preset.sport) ?? [];
+  }
+
+  if (preset.day === "undated") {
+    result = groupByDate(result).get("") ?? [];
+  } else if (preset.day !== "all") {
+    result = groupByDate(result).get(preset.day) ?? [];
+  }
+
+  if (preset.search) {
+    const q = preset.search.toLowerCase();
+    result = result.filter(
+      (e) => e.name.toLowerCase().includes(q) || e.sport.toLowerCase().includes(q),
+    );
+  }
+
+  return result;
+}
+
 // ─── Help ─────────────────────────────────────────────────────────────────────
 
 function cmdHelp() {
@@ -35,6 +99,7 @@ ${c.bold("LiveTV.sx")}  ${c.dim("— ad-free sports streaming CLI")}
 
 ${c.bold("USAGE")}
   ${c.cyan("bun run cli")}                              Interactive picker
+  ${c.cyan("bun run cli --preset")} ${c.yellow("<code>")}              Replay saved filters, skip to event list
   ${c.cyan("bun run cli list")}                         Print all events as JSON
   ${c.cyan("bun run cli list --sport")} ${c.yellow("<category>")}      Filter by sport category
   ${c.cyan("bun run cli list --date")}  ${c.yellow("<day>")}           Filter by day
@@ -60,7 +125,15 @@ ${c.bold("INTERACTIVE MODE")}  ${c.dim("(no arguments)")}
   ${c.dim("Step 3")}  Search        — optional name filter (shown when >100 events match)
   ${c.dim("Step 4")}  Event list    — live events shown first, then sorted by time
   ${c.dim("Step 5")}  Stream picker — AceStream → VLC, YouTube → VLC, web embed → browser
+  ${c.dim("tip:")} After filtering, a ${c.yellow("--preset")} code is printed — paste it next time to skip filters.
   ${c.dim("tip:")} Run ${c.cyan("bun run cli config")} to set a default sport that is pre-selected.
+
+${c.bold("PRESETS")}
+  After any interactive session the CLI prints a ${c.yellow("--preset")} code encoding your filters.
+  Re-run it to jump straight to the filtered event list with fresh event data:
+    ${c.dim("bun run cli --preset eyJzcG9ydCI6IkZvb3RiYWxsIiwiZGF5IjoiYWxsIn0")}
+  The preset contains: sport · day · search query (all optional).
+  Dates are stored as ISO strings (${c.yellow("YYYY-MM-DD")}); use ${c.yellow('"all"')} for any day.
 
 ${c.bold("STREAM PRIORITY")}
   1. ${c.green("AceStream")}   Best quality. Needs engine: ${c.cyan("docker compose up -d")}
@@ -273,7 +346,7 @@ async function pickSport(
   return choice as string;
 }
 
-/** Ask the user to pick a day. Returns ISO date string, "all", or null on cancel. */
+/** Ask the user to pick a day. Returns ISO date string, "all", "undated", or null on cancel. */
 async function pickDay(events: LiveEvent[]): Promise<string | null> {
   const byDate = groupByDate(events);
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -286,7 +359,6 @@ async function pickDay(events: LiveEvent[]): Promise<string | null> {
     },
   ];
 
-  // Live/undated events bucket
   const undated = byDate.get("") ?? [];
   if (undated.length > 0) {
     options.push({
@@ -311,21 +383,32 @@ async function pickDay(events: LiveEvent[]): Promise<string | null> {
   return choice as string;
 }
 
-/** Optional text search when the list is large. Returns the filtered array. */
-async function maybeSearch(events: LiveEvent[], threshold = 100): Promise<LiveEvent[] | null> {
-  if (events.length <= threshold) return events;
+/**
+ * Optional text search when the list is large.
+ * Returns { events, query } — null on cancel.
+ */
+async function maybeSearch(
+  events: LiveEvent[],
+  threshold = 100,
+): Promise<{ events: LiveEvent[]; query: string } | null> {
+  if (events.length <= threshold) return { events, query: "" };
 
   const input = await p.text({
     message: `${events.length} events — search by name or sport (leave blank to show all):`,
     placeholder: "e.g. Premier League or Manchester",
   });
   if (p.isCancel(input)) return null;
-  if (!input || !input.trim()) return events;
+  const q = (input ?? "").trim();
+  if (!q) return { events, query: "" };
 
-  const q = input.trim().toLowerCase();
-  return events.filter(
-    (e) => e.name.toLowerCase().includes(q) || e.sport.toLowerCase().includes(q),
-  );
+  return {
+    events: events.filter(
+      (e) =>
+        e.name.toLowerCase().includes(q.toLowerCase()) ||
+        e.sport.toLowerCase().includes(q.toLowerCase()),
+    ),
+    query: q,
+  };
 }
 
 async function pickEvent(events: LiveEvent[]): Promise<string | null> {
@@ -405,12 +488,8 @@ async function pickStream(eventId: string, aceAvailable: boolean): Promise<void>
   p.outro("Enjoy the match!");
 }
 
-// ─── Interactive mode ─────────────────────────────────────────────────────────
-
-async function interactive() {
-  p.intro("LiveTV.sx — Sports Stream Picker");
-
-  const prefs = loadPrefs();
+// Shared startup: check AceStream + fetch events
+async function startup(): Promise<{ aceAvailable: boolean; allEvents: LiveEvent[] }> {
   const aceAvailable = await isAceEngineAvailable();
   if (!aceAvailable) {
     p.log.warn(
@@ -437,6 +516,45 @@ async function interactive() {
     process.exit(0);
   }
 
+  return { aceAvailable, allEvents };
+}
+
+// ─── Interactive mode ─────────────────────────────────────────────────────────
+
+async function runWithPreset(preset: FilterPreset): Promise<void> {
+  p.intro(`LiveTV.sx  —  ${describePreset(preset)}`);
+
+  const { aceAvailable, allEvents } = await startup();
+  const filtered = applyPreset(allEvents, preset);
+
+  if (filtered.length === 0) {
+    p.log.warn(
+      "No events match this preset. The schedule may have changed.\n" +
+        "  Run without --preset to browse fresh events.",
+    );
+    process.exit(0);
+  }
+
+  // Show the preset code again so the user can copy it easily
+  p.log.info(
+    `💾 Preset  ${describePreset(preset)}\n` + `   bun run cli --preset ${encodePreset(preset)}`,
+  );
+
+  const eventId = await pickEvent(filtered);
+  if (!eventId) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
+
+  await pickStream(eventId, aceAvailable);
+}
+
+async function interactive(): Promise<void> {
+  p.intro("LiveTV.sx — Sports Stream Picker");
+
+  const prefs = loadPrefs();
+  const { aceAvailable, allEvents } = await startup();
+
   // ── Step 1: Sport filter ──────────────────────────────────────────────────
 
   const sportChoice = await pickSport(allEvents, prefs);
@@ -444,7 +562,6 @@ async function interactive() {
     p.cancel("Cancelled.");
     process.exit(0);
   }
-
   if (sportChoice === "config") {
     await cmdConfig();
     process.exit(0);
@@ -472,12 +589,21 @@ async function interactive() {
 
   // ── Step 3: Optional search ───────────────────────────────────────────────
 
-  const searched = await maybeSearch(filtered);
-  if (!searched) {
+  const searchResult = await maybeSearch(filtered);
+  if (!searchResult) {
     p.cancel("Cancelled.");
     process.exit(0);
   }
-  filtered = searched;
+  filtered = searchResult.events;
+
+  // ── Preset code ───────────────────────────────────────────────────────────
+
+  const preset: FilterPreset = {
+    sport: sportChoice,
+    day: dayChoice,
+    ...(searchResult.query ? { search: searchResult.query } : {}),
+  };
+  p.log.info(`💾 Save as preset:\n   bun run cli --preset ${encodePreset(preset)}`);
 
   // ── Step 4: Event picker ──────────────────────────────────────────────────
 
@@ -501,35 +627,45 @@ function parseFlag(flag: string): string | undefined {
   return idx !== -1 ? args[idx + 1] : undefined;
 }
 
-switch (command) {
-  case "list":
-    await cmdList({
-      sport: parseFlag("--sport"),
-      date: parseFlag("--date"),
-    });
-    break;
-  case "watch":
-    if (!args[0]) {
-      console.error("Usage: livetv watch <event-id>\nRun `livetv help` for all commands.");
-      process.exit(1);
-    }
-    await cmdWatch(args[0]);
-    break;
-  case "streams":
-    if (!args[0]) {
-      console.error("Usage: livetv streams <event-id>\nRun `livetv help` for all commands.");
-      process.exit(1);
-    }
-    await cmdStreams(args[0]);
-    break;
-  case "config":
-    await cmdConfig();
-    break;
-  case "help":
-  case "--help":
-  case "-h":
-    cmdHelp();
-    break;
-  default:
-    await interactive();
+// Handle --preset / --help / -h as flags on the default command
+if (command === "--preset" && args[0]) {
+  const preset = decodePreset(args[0]);
+  if (!preset) {
+    console.error("Invalid preset code. Run `bun run cli help` for usage.");
+    process.exit(1);
+  }
+  await runWithPreset(preset);
+} else if (command === "--help" || command === "-h") {
+  cmdHelp();
+} else {
+  switch (command) {
+    case "list":
+      await cmdList({
+        sport: parseFlag("--sport"),
+        date: parseFlag("--date"),
+      });
+      break;
+    case "watch":
+      if (!args[0]) {
+        console.error("Usage: livetv watch <event-id>\nRun `livetv help` for all commands.");
+        process.exit(1);
+      }
+      await cmdWatch(args[0]);
+      break;
+    case "streams":
+      if (!args[0]) {
+        console.error("Usage: livetv streams <event-id>\nRun `livetv help` for all commands.");
+        process.exit(1);
+      }
+      await cmdStreams(args[0]);
+      break;
+    case "config":
+      await cmdConfig();
+      break;
+    case "help":
+      cmdHelp();
+      break;
+    default:
+      await interactive();
+  }
 }
