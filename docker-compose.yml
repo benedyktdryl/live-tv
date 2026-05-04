@@ -1,0 +1,36 @@
+services:
+  # AceStream engine — exposes HTTP API on port 6878
+  # The addon resolves acestream:// hashes to http://acestream:6878/ace/getstream?...
+  acestream:
+    image: ghcr.io/magnetikonline/docker-acestream:latest
+    ports:
+      - "6878:6878"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-qO-",
+          "http://localhost:6878/webui/api/service?method=get_version",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # LiveTV.sx Stremio add-on
+  addon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "7000:7000"
+    environment:
+      # Point to the AceStream service name inside the Docker network
+      ACE_ENGINE_HOST: acestream
+      ACE_ENGINE_PORT: "6878"
+      PORT: "7000"
+    depends_on:
+      acestream:
+        condition: service_healthy
+    restart: unless-stopped

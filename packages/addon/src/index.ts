@@ -1,5 +1,6 @@
 import { createRequire } from "module";
 import { fetchEvents, fetchEventDetail, resolveStreams } from "@live-tv/core";
+import type { ResolvedStream } from "@live-tv/core";
 
 const require = createRequire(import.meta.url);
 const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
@@ -46,7 +47,8 @@ const builder = new addonBuilder({
   id: "community.livetv-sx",
   version: "0.1.0",
   name: "LiveTV.sx Sports",
-  description: "Live sports streams scraped from livetv.sx. Requires AceStream for most streams.",
+  description:
+    "Live sports streams from livetv.sx. AceStream for best quality; web embeds open in browser.",
   logo: "https://cdn.livetv861.me/img/icons/default.gif",
   background: "https://cdn.livetv861.me/img/desktop/ltvbg_1200.png",
   types: ["tv"],
@@ -133,14 +135,25 @@ builder.defineStreamHandler(async (args: { type: string; id: string }) => {
     };
   }
 
-  const streams = resolved.map((s) => ({
-    name: s.name,
-    url: s.url,
-    description: s.description,
-    behaviorHints: {
-      notWebReady: s.url.startsWith("acestream://"),
-    },
-  }));
+  const streams = resolved.map((s: ResolvedStream) => {
+    if (s.isExternal) {
+      // Browser embed (Aliez, Voodc, etc.) — Stremio shows an "Open" button
+      return {
+        name: s.name,
+        description: s.description,
+        externalUrl: s.url,
+      };
+    }
+    return {
+      name: s.name,
+      url: s.url,
+      description: s.description,
+      behaviorHints: {
+        // acestream:// URIs need the AceStream app to handle them
+        notWebReady: s.url.startsWith("acestream://"),
+      },
+    };
+  });
 
   console.log(`[streams] returning ${streams.length} streams for event ${eventId}`);
   return { streams };

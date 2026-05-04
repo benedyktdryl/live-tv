@@ -7,10 +7,16 @@ const ACE_BASE = `http://${ACE_ENGINE_HOST}:${ACE_ENGINE_PORT}`;
 export interface ResolvedStream {
   /** Display name shown in Stremio stream picker */
   name: string;
-  /** The URL Stremio or VLC will open */
+  /** The URL to stream (VLC / Stremio player). Empty string when isExternal is true. */
   url: string;
   /** Short provider tag shown under stream name */
   description: string;
+  /**
+   * When true this is a browser-embed link (Aliez, Voodc, etc.) that cannot be
+   * played directly. Stremio should open it with externalUrl; the CLI should
+   * open the system browser.
+   */
+  isExternal: boolean;
 }
 
 /**
@@ -28,29 +34,33 @@ export async function isAceEngineAvailable(): Promise<boolean> {
 }
 
 /**
- * Convert a raw stream link into one or more Stremio-compatible stream objects.
+ * Convert a raw stream link into one or more resolved stream objects.
  *
- * For AceStream hashes we return two options:
- *   A) acestream://HASH  — handled natively by Stremio if AceStream app is installed
- *   B) http://localhost:6878/ace/getstream?content_id=HASH — works when engine is running
+ * AceStream hashes produce two options:
+ *   A) acestream://HASH  — opened by AceStream app if installed (URI scheme)
+ *   B) http://ACE_ENGINE/ace/getstream?content_id=HASH — requires running engine
+ *
+ * Web-player embeds (Aliez, Voodc, etc.) are marked isExternal=true so callers
+ * know to open them in a browser rather than attempt direct playback.
  */
 export function resolveStream(link: StreamLink): ResolvedStream[] {
   if (link.type === "acestream") {
     const hash = link.url.replace("acestream://", "");
     const bitrate = link.bitrate ? ` · ${link.bitrate}` : "";
-    const results: ResolvedStream[] = [
+    return [
       {
         name: `AceStream${bitrate}`,
         url: link.url,
-        description: "AceStream app required",
+        description: "AceStream app / URI handler",
+        isExternal: false,
       },
       {
         name: `AceStream Engine${bitrate}`,
         url: `${ACE_BASE}/ace/getstream?content_id=${hash}`,
-        description: "AceStream engine on localhost:6878",
+        description: `Engine at ${ACE_ENGINE_HOST}:${ACE_ENGINE_PORT}`,
+        isExternal: false,
       },
     ];
-    return results;
   }
 
   if (link.type === "youtube") {
@@ -59,41 +69,42 @@ export function resolveStream(link: StreamLink): ResolvedStream[] {
         name: "YouTube",
         url: link.url,
         description: "YouTube broadcast",
+        isExternal: false,
       },
     ];
   }
 
-  // webplayer links — return as-is; Stremio may be able to open them
+  // Web-player embeds — these are HTML pages, not direct streams.
+  // Mark isExternal so callers open them in a browser.
   const bitrate = link.bitrate ? ` · ${link.bitrate}` : "";
   return [
     {
       name: `${link.provider}${bitrate}`,
       url: link.url,
-      description: `Browser embed (${link.provider})`,
+      description: `Web embed — opens in browser`,
+      isExternal: true,
     },
   ];
 }
 
 /**
- * Resolve all stream links for an event into Stremio stream objects.
- * AceStream links are prioritised by sorting them first, then by bitrate descending.
+ * Resolve all stream links for an event.
+ * Order: acestream first (highest bitrate), then youtube, then web embeds.
  */
 export function resolveStreams(links: StreamLink[]): ResolvedStream[] {
-  // Sort: acestream first, then by numeric bitrate desc
   const sorted = [...links].sort((a, b) => {
-    if (a.type === "acestream" && b.type !== "acestream") return -1;
-    if (b.type === "acestream" && a.type !== "acestream") return 1;
-    const ba = parseInt(a.bitrate ?? "0");
-    const bb = parseInt(b.bitrate ?? "0");
-    return bb - ba;
+    const rank = (t: StreamLink["type"]) => (t === "acestream" ? 0 : t === "youtube" ? 1 : 2);
+    const dr = rank(a.type) - rank(b.type);
+    if (dr !== 0) return dr;
+    return parseInt(b.bitrate ?? "0") - parseInt(a.bitrate ?? "0");
   });
 
   return sorted.flatMap(resolveStream);
 }
 
 /**
- * Return the best single VLC-playable URL for a list of stream links.
- * Prefers the AceStream engine HTTP URL for VLC compatibility.
+ * Return the best URL for direct VLC playback.
+ * Prefers the AceStream engine HTTP URL, falls back to YouTube, ignores web embeds.
  */
 export function bestVlcUrl(links: StreamLink[]): string | null {
   const ace = links.find((l) => l.type === "acestream");
@@ -101,6 +112,17 @@ export function bestVlcUrl(links: StreamLink[]): string | null {
     const hash = ace.url.replace("acestream://", "");
     return `${ACE_BASE}/ace/getstream?content_id=${hash}`;
   }
-  const web = links.find((l) => l.type === "webplayer" || l.type === "youtube");
-  return web?.url ?? null;
+  const yt = links.find((l) => l.type === "youtube");
+  return yt?.url ?? null;
+}
+
+/**
+ * Return the best URL to open in a browser (web embeds, YouTube fallback).
+ * Returns null if there are no browser-openable streams.
+ */
+export function bestBrowserUrl(links: StreamLink[]): string | null {
+  const web = links.find((l) => l.type === "webplayer");
+  if (web) return web.url;
+  const yt = links.find((l) => l.type === "youtube");
+  return yt?.url ?? null;
 }

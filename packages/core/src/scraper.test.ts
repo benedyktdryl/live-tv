@@ -144,6 +144,31 @@ describe("resolver", () => {
     const resolved = resolveStreams(links);
     expect(resolved).toHaveLength(1);
     expect(resolved[0].url).toBe("https://www.youtube.com/watch?v=abc123defgh");
+    expect(resolved[0].isExternal).toBe(false);
+  });
+
+  test("webplayer link is marked isExternal and sorted last", () => {
+    const links: StreamLink[] = [
+      {
+        type: "webplayer",
+        url: "https://livetv.sx/webplayer.php?t=alieztv",
+        bitrate: null,
+        provider: "Aliez",
+      },
+      {
+        type: "acestream",
+        url: "acestream://aabb".padEnd(50, "0").slice(0, 50),
+        bitrate: "3000kbps",
+        provider: "AceStream",
+      },
+    ];
+    const resolved = resolveStreams(links);
+    const external = resolved.filter((s) => s.isExternal);
+    const direct = resolved.filter((s) => !s.isExternal);
+    expect(external.length).toBeGreaterThanOrEqual(1);
+    expect(external[0].url).toContain("alieztv");
+    // AceStream streams must come before web embeds
+    expect(resolved.indexOf(direct[0])).toBeLessThan(resolved.indexOf(external[0]));
   });
 });
 

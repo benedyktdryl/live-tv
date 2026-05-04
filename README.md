@@ -7,7 +7,7 @@ Two tools, one repo:
 | Tool | Primary use |
 |------|-------------|
 | **Stremio Add-on** | Browse and watch events inside Stremio like any other add-on |
-| **CLI** | Quick terminal access, pipe-friendly, opens streams in VLC |
+| **CLI** | Quick terminal access, pipe-friendly, opens streams in VLC or browser |
 
 ---
 
@@ -15,9 +15,9 @@ Two tools, one repo:
 
 livetv.sx lists sports events with three kinds of streams:
 
-- **AceStream** (`acestream://HASH`) — P2P BitTorrent streams, best quality (up to 8 Mbps). Most big football/F1/NBA matches use this.
-- **Web embeds** (Aliez, Voodc) — Third-party iframe players. No extra software needed but quality varies.
-- **YouTube** — When a broadcaster goes public on YouTube.
+- **AceStream** (`acestream://HASH`) — P2P BitTorrent streams, best quality (up to 8 Mbps). Most big football/F1/NBA matches use this. Requires an AceStream engine.
+- **Web embeds** (Aliez, Voodc, etc.) — Third-party iframe players embedded in a webpage. No extra software needed; quality varies. These are opened in your browser (Stremio shows an "Open" button; the CLI launches your system browser).
+- **YouTube** — When a broadcaster goes public on YouTube. Plays directly everywhere.
 
 This tool fetches the raw HTML (no JS execution needed — the site is server-rendered), extracts the links, and hands them off to Stremio or VLC.
 
@@ -37,15 +37,17 @@ curl -fsSL https://bun.sh/install | bash
 
 Required for AceStream streams (most high-quality football, F1, NBA broadcasts). Skip this if you only care about YouTube/web embed streams.
 
-**Docker (recommended — no install, auto-restarts):**
+**Standalone Docker container:**
 
 ```bash
 docker run -d \
   --name acestream \
   -p 6878:6878 \
   --restart unless-stopped \
-  acestream/acestream-engine
+  ghcr.io/magnetikonline/docker-acestream:latest
 ```
+
+**Docker Compose (addon + engine together) — recommended, see [Docker Compose](#docker-compose) below.**
 
 **Native macOS:** download from [acestream.org](https://acestream.org) and launch AceStream Engine from the menu bar.
 
@@ -55,6 +57,8 @@ Verify it's running:
 curl -s "http://localhost:6878/webui/api/service?method=get_version"
 # → {"result":{"version":"..."},...}
 ```
+
+> **Note:** Stremio does **not** play `acestream://` URIs natively — its built-in player needs a plain HTTP stream. The add-on exposes both the raw `acestream://` URI (handled by the AceStream desktop app if installed at OS level) and an `http://localhost:6878/ace/getstream?…` URL that works with any running engine including the Docker container.
 
 ### Stremio (for the add-on)
 
@@ -68,6 +72,40 @@ Download from [stremio.com](https://www.stremio.com/downloads). The free version
 git clone <this-repo> live-tv
 cd live-tv
 bun install
+```
+
+---
+
+## Docker Compose
+
+The easiest way to get everything running: one command starts the AceStream engine **and** the Stremio add-on server together.
+
+```bash
+docker compose up -d
+```
+
+Services:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `acestream` | 6878 | AceStream engine HTTP API |
+| `addon` | 7000 | Stremio add-on manifest |
+
+The `addon` container is pre-configured with `ACE_ENGINE_HOST=acestream` so streams resolve correctly inside the Docker network.
+
+Install the add-on in Stremio: `http://127.0.0.1:7000/manifest.json`
+
+Logs:
+
+```bash
+docker compose logs -f addon      # add-on server
+docker compose logs -f acestream  # engine
+```
+
+Stop:
+
+```bash
+docker compose down
 ```
 
 ---
@@ -88,12 +126,8 @@ HTTP addon accessible at: http://127.0.0.1:7000/manifest.json
 ╔══════════════════════════════════════════╗
 ║  LiveTV.sx Stremio Add-on is running!    ║
 ╠══════════════════════════════════════════╣
-║  Manifest: http://127.0.0.1:7000/manifest.json║
-║                                          ║
-║  To install in Stremio:                  ║
-║  1. Open Stremio                         ║
-║  2. Go to Add-ons search                 ║
-║  3. Paste the manifest URL above         ║
+║  Manifest: http://127.0.0.1:7000/manifest.json
+║  ...
 ╚══════════════════════════════════════════╝
 
 [cache] refreshed 500 events
@@ -116,14 +150,14 @@ You now have a **LiveTV.sx Sports** catalog in your Board.
 2. Live events show **🔴 LIVE** in the description
 3. Click an event → Stremio fetches stream options:
 
-| Stream option | When it works |
+| Stream option | What happens |
 |---|---|
-| `AceStream 8000kbps` | AceStream desktop app installed |
-| `AceStream Engine 8000kbps` | AceStream engine running on port 6878 (Docker or native) |
-| `YouTube` | Always works in Stremio's built-in player |
-| `Aliez / Web` | Depends on the embed — may need external browser |
+| `AceStream Engine 8000kbps` | Plays via `localhost:6878` — needs engine running (Docker/native) |
+| `AceStream 8000kbps` | Opens via `acestream://` URI — needs AceStream desktop app installed |
+| `YouTube` | Plays directly in Stremio's built-in player |
+| `Aliez` / `Voodc` / `Web` | Stremio shows an **Open** button → opens in your browser |
 
-4. Pick the highest bitrate AceStream Engine option for best quality
+4. Pick the highest-bitrate **AceStream Engine** option for best quality
 
 ### Environment variables
 
@@ -131,7 +165,7 @@ You now have a **LiveTV.sx Sports** catalog in your Board.
 |---|---|---|
 | `LIVETV_BASE_URL` | `https://livetv.sx` | Switch to a mirror if the main domain is blocked |
 | `PORT` | `7000` | Port for the add-on server |
-| `ACE_ENGINE_HOST` | `127.0.0.1` | AceStream engine host |
+| `ACE_ENGINE_HOST` | `127.0.0.1` | AceStream engine host (use `acestream` with Docker Compose) |
 | `ACE_ENGINE_PORT` | `6878` | AceStream engine port |
 
 **Using a mirror domain:**
@@ -165,7 +199,6 @@ What it does:
 │  ● 9:00  Metalurh Zp – Victoria  (Ukraine. First League)  🔴
 │  ○ 10:00  World Championships  (World Championship)  🔴
 │  ○ 11:00  Hampshire – Glamorgan  (County Championship One)
-│  ○ 11:00  Leicestershire – Nottinghamshire  (County Championship One)
 │  ○ 18:00  Miami Grand Prix  (Formula 1)
 │  ○ 19:00  Espanyol – Real Madrid RM  (Spain. Primera Division)
 │  ○ 19:00  Inter – Parma  (Italy. Serie A)
@@ -176,14 +209,17 @@ Use **↑ ↓** to navigate, **Enter** to select. After picking an event:
 
 ```
 ◆  Select a stream:
-│  ● AceStream 8000kbps          AceStream app required
-│  ○ AceStream Engine 8000kbps   AceStream engine on localhost:6878
-│  ○ AceStream 5000kbps          AceStream app required
-│  ○ AceStream Engine 5000kbps   AceStream engine on localhost:6878
-│  ○ YouTube                     YouTube broadcast
+│  ● ▶  AceStream 8000kbps          AceStream app / URI handler
+│  ○ ▶  AceStream Engine 8000kbps   Engine at 127.0.0.1:6878
+│  ○ ▶  AceStream 5000kbps          AceStream app / URI handler
+│  ○ ▶  AceStream Engine 5000kbps   Engine at 127.0.0.1:6878
+│  ○ ▶  YouTube                     YouTube broadcast
+│  ○ 🌐 Aliez                       Web embed — opens in browser
+│  ○ 🌐 Voodc                       Web embed — opens in browser
 ```
 
-Pick one → VLC opens.
+- `▶` streams open in VLC
+- `🌐` streams open in your system browser (no extra software needed)
 
 > **Tip:** The list supports keyboard search — just start typing a team or league name and the list filters as you type. For example type `real madrid` to jump straight to that event.
 
@@ -352,13 +388,15 @@ live-tv/
 │   ├── core/               # Shared logic, no server/UI code here
 │   │   └── src/
 │   │       ├── scraper.ts        # Fetch + parse livetv.sx HTML
-│   │       ├── resolver.ts       # Raw links → Stremio/VLC stream objects
+│   │       ├── resolver.ts       # Raw links → Stremio/VLC/browser stream objects
 │   │       ├── types.ts          # LiveEvent, StreamLink, ResolvedStream
 │   │       └── scraper.test.ts   # bun test suite
 │   ├── addon/              # Stremio add-on server (port 7000)
 │   │   └── src/index.ts
-│   └── cli/                # Terminal picker + VLC launcher
+│   └── cli/                # Terminal picker + VLC/browser launcher
 │       └── src/index.ts
+├── Dockerfile              # Container image for the add-on server
+├── docker-compose.yml      # Full stack: add-on + AceStream engine
 ├── package.json            # Bun workspace + run scripts
 └── tsconfig.json
 ```
@@ -371,7 +409,16 @@ live-tv/
 Streams are added just before and during the event. Check back 15–30 min before kickoff. Run `bun run cli streams <id>` to see what's currently available.
 
 **AceStream streams not playing in Stremio**  
-Use the **"AceStream Engine"** stream variant — it serves via `localhost:6878` as a plain HTTP stream that Stremio's built-in player can handle. Make sure the engine is running (`curl localhost:6878/webui/api/service?method=get_version`).
+Stremio cannot play `acestream://` URIs directly — its built-in player needs a plain HTTP URL. Use the **"AceStream Engine"** stream variant which serves via `http://localhost:6878/ace/getstream?…`. Make sure the engine is running:
+
+```bash
+curl -s "http://localhost:6878/webui/api/service?method=get_version"
+```
+
+If it's not running, start it with Docker Compose (`docker compose up -d`) or standalone Docker.
+
+**Web embed streams (Aliez, Voodc) don't play in Stremio**  
+These are HTML embed pages — they can't be played as direct video streams. In Stremio, they appear with an **Open** button that launches them in your browser. In the CLI, selecting a `🌐` stream opens your system browser automatically.
 
 **Site not loading / SSL errors**  
 livetv.sx uses a non-standard certificate chain. This is handled automatically. If the domain is blocked in your region, set `LIVETV_BASE_URL` to a mirror and restart:
@@ -379,6 +426,8 @@ livetv.sx uses a non-standard certificate chain. This is handled automatically. 
 ```bash
 LIVETV_BASE_URL=https://livetv881.me bun run addon
 ```
+
+Known mirrors: `livetv881.me`, `livetv878.me`, `livetv873.me`
 
 **VLC not found by the CLI**  
 The CLI checks `/Applications/VLC.app`, `/usr/bin/vlc`, `/usr/local/bin/vlc`, and `vlc` in `$PATH`. If VLC is installed elsewhere, open the stream URL manually from the `streams` command output.

@@ -5,6 +5,7 @@ import {
   fetchEventDetail,
   resolveStreams,
   bestVlcUrl,
+  bestBrowserUrl,
   isAceEngineAvailable,
 } from "@live-tv/core";
 
@@ -38,7 +39,6 @@ async function openVlc(url: string): Promise<void> {
       // Give it 500ms to see if it fails to launch
       await new Promise((r) => setTimeout(r, 500));
       if (proc.exitCode === null) {
-        // Still running — success
         console.log(`\n▶  Opened VLC: ${url}\n`);
         return;
       }
@@ -48,6 +48,20 @@ async function openVlc(url: string): Promise<void> {
   }
   console.error("\n✗ Could not find VLC. Install it or open this URL manually:");
   console.error(`  ${url}\n`);
+}
+
+async function openBrowser(url: string): Promise<void> {
+  const openers = process.platform === "darwin" ? ["open"] : ["xdg-open", "sensible-browser"];
+  for (const opener of openers) {
+    try {
+      Bun.spawn([opener, url], { stdout: "ignore", stderr: "ignore", stdin: "ignore" });
+      console.log(`\n🌐  Opened in browser: ${url}\n`);
+      return;
+    } catch {
+      // Try next opener
+    }
+  }
+  console.log(`\n🌐  Open this URL in your browser:\n  ${url}\n`);
 }
 
 // ─── Non-interactive commands ─────────────────────────────────────────────────
@@ -63,12 +77,19 @@ async function cmdWatch(eventId: string) {
     console.error(`Event ${eventId} not found`);
     process.exit(1);
   }
-  const url = bestVlcUrl(detail.streams);
-  if (!url) {
-    console.error("No playable stream found for this event");
-    process.exit(1);
+  const vlcUrl = bestVlcUrl(detail.streams);
+  if (vlcUrl) {
+    await openVlc(vlcUrl);
+    return;
   }
-  await openVlc(url);
+  const browserUrl = bestBrowserUrl(detail.streams);
+  if (browserUrl) {
+    console.log("No AceStream/YouTube found — opening web embed in browser:");
+    await openBrowser(browserUrl);
+    return;
+  }
+  console.error("No playable stream found for this event");
+  process.exit(1);
 }
 
 async function cmdStreams(eventId: string) {
@@ -155,7 +176,7 @@ async function interactive() {
     message: "Select a stream:",
     options: resolved.map((s, i) => ({
       value: i,
-      label: `${s.name}`,
+      label: s.isExternal ? `🌐 ${s.name}` : `▶  ${s.name}`,
       hint: s.description,
     })),
   });
@@ -167,14 +188,14 @@ async function interactive() {
 
   const chosen = resolved[streamChoice as number];
 
-  if (chosen.url.startsWith("acestream://")) {
+  // Web embed — open in browser, not VLC
+  if (chosen.isExternal) {
+    await openBrowser(chosen.url);
+  } else if (chosen.url.startsWith("acestream://")) {
     if (!aceAvailable) {
-      p.log.warn("AceStream engine is not running. Trying native acestream:// handler…");
-      // Try to open via system handler
-      Bun.spawn(["open", chosen.url]);
-      p.log.info(`Launched: ${chosen.url}`);
+      p.log.warn("AceStream engine not running — trying system acestream:// URI handler…");
+      await openBrowser(chosen.url);
     } else {
-      // Use engine HTTP URL for VLC
       const hash = chosen.url.replace("acestream://", "");
       const httpUrl = `http://127.0.0.1:6878/ace/getstream?content_id=${hash}`;
       await openVlc(httpUrl);
