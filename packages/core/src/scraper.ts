@@ -72,16 +72,14 @@ function extractEventMeta(td: ReturnType<typeof parse>): {
 }
 
 /**
- * Fetch the list of all upcoming/live sports events.
+ * Pure parser: extract events from an already-fetched event-list HTML string.
+ * Exported for snapshot testing without network access.
  */
-export async function fetchEvents(): Promise<LiveEvent[]> {
-  const html = await fetchHtml(`${BASE_URL}${EVENTS_PATH}`);
+export function parseEventListFromHtml(html: string, baseUrl = BASE_URL): LiveEvent[] {
   const root = parse(html);
-
   const events: LiveEvent[] = [];
   const seen = new Set<string>();
 
-  // Each row is a <tr> inside table.main; event links have class "live" or no class
   for (const anchor of root.querySelectorAll("table.main a[href*='/eventinfo/']")) {
     const href = anchor.getAttribute("href") ?? "";
     if (!href.includes("/eventinfo/")) continue;
@@ -93,11 +91,9 @@ export async function fetchEvents(): Promise<LiveEvent[]> {
     const name = anchor.text.trim();
     if (!name) continue;
 
-    // Slug is everything after the numeric ID, without leading underscore
     const slugMatch = href.match(/\/eventinfo\/\d+_([^/]+)\//);
     const slug = slugMatch ? slugMatch[1] : id;
 
-    // Walk up to find sibling/parent span with evdesc
     const parentTd = anchor.parentNode;
     const meta = extractEventMeta(parentTd as ReturnType<typeof parse>);
 
@@ -109,12 +105,28 @@ export async function fetchEvents(): Promise<LiveEvent[]> {
       time: meta.time,
       score: meta.score,
       isLive: meta.isLive,
-      url: `${BASE_URL}${href}`,
+      url: `${baseUrl}${href}`,
       posterUrl: null,
     });
   }
 
   return events;
+}
+
+/**
+ * Fetch the list of all upcoming/live sports events.
+ */
+export async function fetchEvents(): Promise<LiveEvent[]> {
+  const html = await fetchHtml(`${BASE_URL}${EVENTS_PATH}`);
+  return parseEventListFromHtml(html);
+}
+
+/**
+ * Pure parser: extract stream links from an event-detail HTML string.
+ * Exported for snapshot testing without network access.
+ */
+export function parseStreamLinksFromHtml(html: string): StreamLink[] {
+  return parseStreamLinks(parse(html));
 }
 
 /**

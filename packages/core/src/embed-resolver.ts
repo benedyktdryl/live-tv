@@ -43,29 +43,23 @@ function qualify(url: string): string {
 }
 
 /**
- * Aliez TV: the player page contains  pl.init('//HOST/hls/STREAM/index.m3u8?cst=TOKEN')
- * The token and CDN hostname rotate per request; always fetch fresh.
+ * Pure: extract the HLS URL from an Aliez TV player page HTML string.
+ * The page contains  pl.init('//HOST/hls/STREAM/index.m3u8?cst=TOKEN')
+ * Exported for snapshot testing without network access.
  */
-async function extractAliezStream(channelId: string): Promise<string | null> {
-  const html = await fetchEmbed(`https://emb.apl408.me/player/live.php?id=${channelId}`);
-  if (!html) return null;
-
+export function extractAliezM3u8FromHtml(html: string): string | null {
   const match =
     html.match(/pl\.init\(\s*['"](\/{2}[^'"]+\.m3u8[^'"]*)['"]\s*\)/) ??
     html.match(/pl\.init\(\s*['"]([^'"]+\.m3u8[^'"]*)['"]\s*\)/);
-
   return match ? qualify(match[1]) : null;
 }
 
 /**
- * Generic extractor: look for the first .m3u8 URL in the embed page HTML.
- * Covers Voodc and any other provider we don't have a specific handler for.
+ * Pure: extract the first .m3u8 URL found anywhere in an embed page HTML string.
+ * Covers Voodc and any provider that writes the URL into their page source.
+ * Exported for snapshot testing without network access.
  */
-async function extractGenericEmbed(embedUrl: string): Promise<string | null> {
-  const full = embedUrl.startsWith("//") ? "https:" + embedUrl : embedUrl;
-  const html = await fetchEmbed(full);
-  if (!html) return null;
-
+export function extractGenericM3u8FromHtml(html: string): string | null {
   // Protocol-absolute https:// match first
   const abs = html.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*?)["']/);
   if (abs) return abs[1];
@@ -75,6 +69,19 @@ async function extractGenericEmbed(embedUrl: string): Promise<string | null> {
   if (rel) return qualify(rel[1]);
 
   return null;
+}
+
+async function extractAliezStream(channelId: string): Promise<string | null> {
+  const html = await fetchEmbed(`https://emb.apl408.me/player/live.php?id=${channelId}`);
+  if (!html) return null;
+  return extractAliezM3u8FromHtml(html);
+}
+
+async function extractGenericEmbed(embedUrl: string): Promise<string | null> {
+  const full = embedUrl.startsWith("//") ? "https:" + embedUrl : embedUrl;
+  const html = await fetchEmbed(full);
+  if (!html) return null;
+  return extractGenericM3u8FromHtml(html);
 }
 
 /**

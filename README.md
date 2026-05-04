@@ -373,10 +373,42 @@ bun run cli list \
 bun test
 ```
 
-8 tests total:
-- **Unit** (4): HTML stream-link parsing — catches selector regressions without network access
-- **Unit** (3): Resolver output — verifies AceStream/YouTube/webplayer URL building
-- **Integration** (1): Live smoke test against livetv.sx — run this if streams stop showing up to check whether the site changed its HTML structure
+33 tests across two suites, all offline except the integration smoke test:
+
+**`snapshot.test.ts`** — 21 tests, no network, runs in ~350ms
+- Event list parsing against a saved `event-list.html` fixture: total count, dedup, live/upcoming flags, known event IDs with exact time/sport
+- Stream link parsing against a saved `event-with-streams.html` fixture: all 4 YouTube video IDs extracted correctly
+- Stream link parsing against a synthetic `event-with-all-streams.html`: AceStream (with bitrate), YouTube, Aliez, and Voodc all extracted with correct types and providers
+- Aliez embed extractor against `aliez-player-live.html` (real saved page): exact m3u8 URL, CDN host, and session token
+- Aliez embed extractor against `aliez-player-offline.html`: returns null cleanly
+- Generic m3u8 extractor against `voodc-player-live.html`: https:// URL, protocol-relative URL, query string handling
+
+**`scraper.test.ts`** — 12 tests
+- Unit (4): Inline HTML snippets for stream link selector logic
+- Unit (4): Resolver output — AceStream/YouTube/webplayer URL building, sort order, `isExternal` flag
+- Unit (3): Embed resolver — network calls with graceful null fallback
+- Integration (1): Live smoke test against `livetv.sx` — run this if streams stop showing up
+
+### Refreshing fixtures
+
+When livetv.sx changes its HTML structure the snapshot tests will fail with a clear diff. To update the fixtures:
+
+```bash
+# Refresh the event list
+curl -A "Mozilla/5.0" --insecure https://livetv.sx/enx/allupcomingsports \
+  > packages/core/src/__fixtures__/event-list.html
+
+# Refresh an event detail page (replace ID with a current one that has streams)
+curl -A "Mozilla/5.0" --insecure https://livetv.sx/enx/eventinfo/378047836_world_championships/ \
+  > packages/core/src/__fixtures__/event-with-streams.html
+
+# Refresh the Aliez player page
+curl -A "Mozilla/5.0" -H "Referer: https://livetv.sx/" --insecure \
+  https://emb.apl408.me/player/live.php?id=1 \
+  > packages/core/src/__fixtures__/aliez-player-live.html
+```
+
+Then update any hardcoded values in `snapshot.test.ts` that changed (event IDs, video IDs, m3u8 tokens).
 
 ---
 
@@ -387,10 +419,13 @@ live-tv/
 ├── packages/
 │   ├── core/               # Shared logic, no server/UI code here
 │   │   └── src/
-│   │       ├── scraper.ts        # Fetch + parse livetv.sx HTML
-│   │       ├── resolver.ts       # Raw links → Stremio/VLC/browser stream objects
-│   │       ├── types.ts          # LiveEvent, StreamLink, ResolvedStream
-│   │       └── scraper.test.ts   # bun test suite
+│   │       ├── scraper.ts          # Fetch + parse livetv.sx HTML
+│   │       ├── resolver.ts         # Raw links → Stremio/VLC/browser stream objects
+│   │       ├── embed-resolver.ts   # HLS extraction from Aliez/Voodc embed pages
+│   │       ├── types.ts            # LiveEvent, StreamLink, ResolvedStream
+│   │       ├── scraper.test.ts     # Unit + integration tests
+│   │       ├── snapshot.test.ts    # Snapshot tests against HTML fixtures (no network)
+│   │       └── __fixtures__/       # Saved HTML pages used by snapshot tests
 │   ├── addon/              # Stremio add-on server (port 7000)
 │   │   └── src/index.ts
 │   └── cli/                # Terminal picker + VLC/browser launcher

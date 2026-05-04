@@ -6,5 +6,5 @@
   "semi": true,
   "printWidth": 100,
   "endOfLine": "lf",
-  "ignorePatterns": []
+  "ignorePatterns": ["**/__fixtures__/**"]
 }

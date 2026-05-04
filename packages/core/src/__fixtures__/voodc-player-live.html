@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Voodc - Live Stream</title>
+  </head>
+  <body>
+    <div id="player-container">
+      <script>
+        var playerConfig = {
+          sources: [
+            {
+              file: "https://cdn5.voodc.com/hls/channel456/index.m3u8",
+              type: "application/x-mpegURL",
+            },
+          ],
+          autostart: true,
+        };
+        jwplayer("player-container").setup(playerConfig);
+      </script>
+    </div>
+  </body>
+</html>
