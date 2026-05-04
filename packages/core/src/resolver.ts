@@ -1,4 +1,5 @@
 import type { StreamLink } from "./types.js";
+import { resolveEmbedStream } from "./embed-resolver.js";
 
 const ACE_ENGINE_HOST = process.env.ACE_ENGINE_HOST ?? "127.0.0.1";
 const ACE_ENGINE_PORT = process.env.ACE_ENGINE_PORT ?? "6878";
@@ -125,4 +126,36 @@ export function bestBrowserUrl(links: StreamLink[]): string | null {
   if (web) return web.url;
   const yt = links.find((l) => l.type === "youtube");
   return yt?.url ?? null;
+}
+
+/**
+ * Like resolveStreams but also attempts HLS extraction for webplayer entries.
+ *
+ * For each web embed stream this:
+ *   1. Fetches the embed page (Aliez, Voodc, …) and looks for a .m3u8 URL
+ *   2. If found → returns it as a direct (non-external) stream, playable in VLC/Stremio
+ *   3. If not   → keeps the original browser-open entry as a fallback
+ *
+ * Extraction is attempted in parallel across all web embed links.
+ */
+export async function resolveStreamsAsync(links: StreamLink[]): Promise<ResolvedStream[]> {
+  const resolved = resolveStreams(links);
+
+  const enriched = await Promise.all(
+    resolved.map(async (stream) => {
+      if (!stream.isExternal) return stream;
+
+      const m3u8 = await resolveEmbedStream(stream.url);
+      if (!m3u8) return stream; // keep as browser-open fallback
+
+      return {
+        name: `${stream.name} (HLS)`,
+        url: m3u8,
+        description: `Direct HLS stream — no browser needed`,
+        isExternal: false,
+      } satisfies ResolvedStream;
+    }),
+  );
+
+  return enriched;
 }

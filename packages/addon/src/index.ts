@@ -1,5 +1,5 @@
 import { createRequire } from "module";
-import { fetchEvents, fetchEventDetail, resolveStreams } from "@live-tv/core";
+import { fetchEvents, fetchEventDetail, resolveStreamsAsync } from "@live-tv/core";
 import type { ResolvedStream } from "@live-tv/core";
 
 const require = createRequire(import.meta.url);
@@ -119,7 +119,7 @@ builder.defineStreamHandler(async (args: { type: string; id: string }) => {
   const detail = await getCachedDetail(eventId);
   if (!detail) return { streams: [] };
 
-  const resolved = resolveStreams(detail.streams);
+  const resolved = await resolveStreamsAsync(detail.streams);
 
   if (resolved.length === 0) {
     console.log(`[streams] no streams found for event ${eventId} (may not be live yet)`);

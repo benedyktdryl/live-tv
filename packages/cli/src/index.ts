@@ -3,7 +3,7 @@ import * as p from "@clack/prompts";
 import {
   fetchEvents,
   fetchEventDetail,
-  resolveStreams,
+  resolveStreamsAsync,
   bestVlcUrl,
   bestBrowserUrl,
   isAceEngineAvailable,
@@ -98,7 +98,8 @@ async function cmdStreams(eventId: string) {
     console.error(`Event ${eventId} not found`);
     process.exit(1);
   }
-  const resolved = resolveStreams(detail.streams);
+  // Use async version to attempt HLS extraction for web embeds
+  const resolved = await resolveStreamsAsync(detail.streams);
   console.log(JSON.stringify(resolved, null, 2));
 }
 
@@ -170,7 +171,10 @@ async function interactive() {
     process.exit(0);
   }
 
-  const resolved = resolveStreams(detail.streams);
+  const hasWebEmbeds = detail.streams.some((s) => s.type === "webplayer");
+  if (hasWebEmbeds) s.start("Extracting HLS from web embeds…");
+  const resolved = await resolveStreamsAsync(detail.streams);
+  if (hasWebEmbeds) s.stop("Done");
 
   const streamChoice = await p.select({
     message: "Select a stream:",

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { parse } from "node-html-parser";
 import { fetchEvents } from "./scraper.js";
-import { resolveStreams } from "./resolver.js";
+import { resolveStreams, resolveStreamsAsync } from "./resolver.js";
+import { resolveEmbedStream } from "./embed-resolver.js";
 import type { StreamLink } from "./types.js";
 
 // ─── Unit: stream link HTML parsing ──────────────────────────────────────────
@@ -170,6 +171,48 @@ describe("resolver", () => {
     // AceStream streams must come before web embeds
     expect(resolved.indexOf(direct[0])).toBeLessThan(resolved.indexOf(external[0]));
   });
+});
+
+// ─── Unit: embed resolver ────────────────────────────────────────────────────
+
+describe("embed resolver", () => {
+  test("resolveEmbedStream handles null for unknown/offline channel gracefully", async () => {
+    // Channel 999999 almost certainly doesn't exist → should return null, not throw
+    const result = await resolveEmbedStream(
+      "https://cdn.livetv881.me/webplayer2.php?t=alieztv&c=999999&lang=en",
+    );
+    // Either null (offline/missing) or a valid https:// m3u8 URL
+    if (result !== null) {
+      expect(result).toMatch(/^https:\/\/.+\.m3u8/);
+    }
+  }, 10_000);
+
+  test("resolveEmbedStream returns null for unknown provider", async () => {
+    const result = await resolveEmbedStream(
+      "https://cdn.livetv881.me/webplayer2.php?t=unknownprovider999&c=1&lang=en",
+    );
+    expect(result).toBeNull();
+  }, 10_000);
+
+  test("resolveStreamsAsync enriches alieztv web embed with HLS when online", async () => {
+    const links: StreamLink[] = [
+      {
+        type: "webplayer",
+        url: "https://cdn.livetv881.me/webplayer2.php?t=alieztv&c=1&lang=en",
+        bitrate: null,
+        provider: "Aliez",
+      },
+    ];
+    const resolved = await resolveStreamsAsync(links);
+    expect(resolved).toHaveLength(1);
+    // If channel 1 is live, isExternal becomes false; if offline, stays true
+    if (!resolved[0].isExternal) {
+      expect(resolved[0].url).toMatch(/^https:\/\/.+\.m3u8/);
+      expect(resolved[0].name).toContain("HLS");
+    } else {
+      expect(resolved[0].isExternal).toBe(true);
+    }
+  }, 15_000);
 });
 
 // ─── Integration: smoke test (requires network) ───────────────────────────────
