@@ -44,7 +44,7 @@ docker run -d \
   --name acestream \
   -p 6878:6878 \
   --restart unless-stopped \
-  ghcr.io/magnetikonline/docker-acestream:latest
+  jopsis/acestream:latest
 ```
 
 **Docker Compose (addon + engine together) — recommended, see [Docker Compose](#docker-compose) below.**

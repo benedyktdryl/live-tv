@@ -1,8 +1,9 @@
 services:
   # AceStream engine — exposes HTTP API on port 6878
   # The addon resolves acestream:// hashes to http://acestream:6878/ace/getstream?...
+  # jopsis/acestream: multi-arch (amd64+arm64), updated April 2026
   acestream:
-    image: ghcr.io/magnetikonline/docker-acestream:latest
+    image: jopsis/acestream:latest
     ports:
       - "6878:6878"
     restart: unless-stopped
