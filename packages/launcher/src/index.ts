@@ -3,29 +3,75 @@
  * Ensures an AceStream HTTP engine is reachable (default 127.0.0.1:6878), then execs the livetv CLI.
  * If the engine is down, tries Docker (see docs/ENGINE-REDISTRIBUTION.md). Does not bundle engine binaries.
  */
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 
-/**
- * Bun resolves execPath to the real binary path. Installs keep versioned names
- * (livetv-darwin-arm64) next to livetv-supervisor-*; also allow plain livetv / livetv.exe.
- */
-function findCompiledCliNextToSupervisor(supervisorPath: string): string | null {
-  const dir = path.dirname(supervisorPath);
+/** Dirs to search for livetv beside this executable (execPath and argv differ when symlinks / Bun). */
+function candidateInstallDirs(): string[] {
+  const dirs: string[] = [];
+  const add = (candidate: string | undefined) => {
+    if (!candidate) return;
+    try {
+      const rp = realpathSync(candidate);
+      const d = path.dirname(rp);
+      if (!dirs.includes(d)) dirs.push(d);
+    } catch {
+      // ignore missing paths
+    }
+  };
+  add(process.execPath);
+  add(process.argv[0]);
+  add(process.argv[1]);
+  if (dirs.length === 0) {
+    dirs.push(path.dirname(process.execPath));
+  }
+
+  // macOS Gatekeeper can run the binary from a temp path that only contains the supervisor.
+  // Also search the default install layout from install-livetv.sh / .ps1.
+  const extra: string[] = [];
+  const home = process.env.HOME;
+  if (home && process.platform !== "win32") {
+    extra.push(path.join(home, ".local/share/livetv/bin"));
+  }
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData && process.platform === "win32") {
+    extra.push(path.join(localAppData, "livetv", "bin"));
+  }
+  for (const d of extra) {
+    if (existsSync(d) && !dirs.includes(d)) dirs.push(d);
+  }
+
+  return dirs;
+}
+
+function guessVersionedLivetvFilenames(): string[] {
+  const plat = process.platform;
+  const a = process.arch;
+  if (plat === "darwin") {
+    if (a === "arm64") return ["livetv-darwin-arm64"];
+    return ["livetv-darwin-x64"];
+  }
+  if (plat === "linux") return ["livetv-linux-x64"];
+  if (plat === "win32") return ["livetv-windows-x64.exe"];
+  return [];
+}
+
+/** Find compiled livetv in one install directory (plain name, release filename, or scan). */
+function findCompiledCliInDir(dir: string): string | null {
   const plain = process.platform === "win32" ? "livetv.exe" : "livetv";
   const direct = path.join(dir, plain);
   if (existsSync(direct)) return direct;
 
+  for (const name of guessVersionedLivetvFilenames()) {
+    const p = path.join(dir, name);
+    if (existsSync(p)) return p;
+  }
+
   try {
-    const names = readdirSync(dir);
-    const candidates = names.filter(
-      (n) =>
-        n.startsWith("livetv") &&
-        !n.includes("supervisor") &&
-        !n.endsWith(".txt") &&
-        !n.endsWith(".md"),
-    );
-    for (const n of candidates.sort()) {
+    for (const n of readdirSync(dir).sort()) {
+      if (!n.startsWith("livetv")) continue;
+      if (n.startsWith("livetv-supervisor")) continue;
+      if (n.endsWith(".txt") || n.endsWith(".md")) continue;
       const full = path.join(dir, n);
       if (existsSync(full)) return full;
     }
@@ -159,12 +205,13 @@ function cliPathAndArgs(forwarded: string[]): { cmd: string; args: string[] } {
     return { cmd: parts[0]!, args: [...parts.slice(1), ...forwarded] };
   }
 
-  const dir = path.dirname(process.execPath);
-  const compiled = findCompiledCliNextToSupervisor(process.execPath);
-  if (compiled) {
-    return { cmd: compiled, args: forwarded };
+  const dirs = candidateInstallDirs();
+  for (const dir of dirs) {
+    const compiled = findCompiledCliInDir(dir);
+    if (compiled) return { cmd: compiled, args: forwarded };
   }
 
+  const dir = dirs[0] ?? path.dirname(process.execPath);
   const devCli = path.join(dir, "packages", "cli", "src", "index.ts");
   if (existsSync(devCli)) {
     return { cmd: Bun.which("bun") ?? "bun", args: [devCli, ...forwarded] };
@@ -176,9 +223,10 @@ function cliPathAndArgs(forwarded: string[]): { cmd: string; args: string[] } {
   }
 
   const plain = process.platform === "win32" ? "livetv.exe" : "livetv";
+  const tried = dirs.length ? dirs.join(", ") : path.dirname(process.execPath);
   console.error(
-    `Could not find livetv CLI next to this binary (${path.join(dir, plain)}).\n` +
-      `Set LIVETV_CLI to the livetv executable or run from the repo with bun.`,
+    `Could not find livetv CLI (looked for ${plain} or ${guessVersionedLivetvFilenames().join(" / ")} in: ${tried}).\n` +
+      `Re-run the install script, or set LIVETV_CLI to your livetv binary path.`,
   );
   process.exit(1);
 }

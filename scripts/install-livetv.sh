@@ -129,9 +129,18 @@ install -m0755 "$SUP" "$BINDIR/$SUP_NAME"
 CLI_INST="$BINDIR/$CLI_NAME"
 SUP_INST="$BINDIR/$SUP_NAME"
 
-# Plain names beside versioned binaries so Bun's resolved execPath dirname finds the CLI.
-ln -sf "$CLI_INST" "$BINDIR/livetv"
-ln -sf "$SUP_INST" "$BINDIR/livetv-supervisor"
+# Second names in BINDIR (hard link = same inode; survives macOS temp copies better than symlink).
+rm -f "$BINDIR/livetv" "$BINDIR/livetv-supervisor"
+if ln "$CLI_INST" "$BINDIR/livetv" 2>/dev/null && ln "$SUP_INST" "$BINDIR/livetv-supervisor" 2>/dev/null; then
+  :
+else
+  ln -sf "$CLI_INST" "$BINDIR/livetv"
+  ln -sf "$SUP_INST" "$BINDIR/livetv-supervisor"
+fi
+if [[ ! -f "$BINDIR/livetv" ]] || [[ ! -f "$BINDIR/livetv-supervisor" ]]; then
+  echo "Could not create $BINDIR/livetv wrappers (hard link or symlink failed)." >&2
+  exit 1
+fi
 
 ln -sf "$CLI_INST" "$HOME/.local/bin/livetv"
 ln -sf "$SUP_INST" "$HOME/.local/bin/livetv-supervisor"
