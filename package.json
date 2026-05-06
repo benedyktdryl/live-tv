@@ -5,12 +5,17 @@
   "scripts": {
     "addon": "bun packages/addon/src/index.ts",
     "cli": "bun packages/cli/src/index.ts",
+    "supervisor": "bun packages/launcher/src/index.ts",
     "dev": "bun packages/addon/src/index.ts",
     "test": "bun test packages/core/src/scraper.test.ts --timeout 30000",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint packages/",
     "format": "oxfmt packages/",
-    "format:check": "oxfmt --check packages/"
+    "format:check": "oxfmt --check packages/",
+    "compile:cli": "bun build packages/cli/src/index.ts --compile --outfile=dist/livetv",
+    "compile:supervisor": "bun build packages/launcher/src/index.ts --compile --outfile=dist/livetv-supervisor",
+    "compile": "mkdir -p dist && bun run compile:cli && bun run compile:supervisor",
+    "compile:release": "bun scripts/compile-release.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.13",

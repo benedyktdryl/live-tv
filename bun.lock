@@ -37,6 +37,13 @@
         "node-html-parser": "^6.1.13",
       },
     },
+    "packages/launcher": {
+      "name": "@live-tv/launcher",
+      "version": "0.1.0",
+      "bin": {
+        "livetv-supervisor": "./src/index.ts",
+      },
+    },
   },
   "packages": {
     "@clack/core": ["@clack/core@0.4.1", "", { "dependencies": { "picocolors": "^1.0.0", "sisteransi": "^1.0.5" } }, "sha512-Pxhij4UXg8KSr7rPek6Zowm+5M22rbd2g1nfojHJkxp5YkFqiZ2+YLEM/XGVIzvGOcM0nqjIFxrpDwWRZYWYjA=="],
@@ -48,6 +55,8 @@
     "@live-tv/cli": ["@live-tv/cli@workspace:packages/cli"],
 
     "@live-tv/core": ["@live-tv/core@workspace:packages/core"],
+
+    "@live-tv/launcher": ["@live-tv/launcher@workspace:packages/launcher"],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.47.0", "", { "os": "android", "cpu": "arm" }, "sha512-KrMQRdMi/upr81qT4ijK6X6BNp6jqpMY7FwILQnwIy9QLc3qpnhUx5rsCLGzn4ewsCQ0CNAspN2ogmP1GXLyLw=="],
 

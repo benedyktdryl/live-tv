@@ -1,3 +1,5 @@
+dist/
+*.bun-build
 node_modules/
 .bun/
 *.log

@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify (typecheck, lint, test)
+        run: |
+          bun run typecheck
+          bun run lint
+          bun run format:check
+          bun run test
+        env:
+          LIVETV_BASE_URL: https://livetv.sx
+
+      - name: Cross-compile CLI and supervisor
+        run: bun run compile:release
+
+      - name: Prepare archives and checksums
+        run: |
+          set -eux
+          mkdir -p release
+          cp packaging/INSTALL-BINARIES.txt dist/
+          cd dist
+          tar czvf ../release/livetv-darwin-arm64.tar.gz \
+            livetv-darwin-arm64 livetv-supervisor-darwin-arm64 INSTALL-BINARIES.txt
+          tar czvf ../release/livetv-darwin-x64.tar.gz \
+            livetv-darwin-x64 livetv-supervisor-darwin-x64 INSTALL-BINARIES.txt
+          tar czvf ../release/livetv-linux-x64.tar.gz \
+            livetv-linux-x64 livetv-supervisor-linux-x64 INSTALL-BINARIES.txt
+          zip -q ../release/livetv-windows-x64.zip \
+            livetv-windows-x64.exe livetv-supervisor-windows-x64.exe INSTALL-BINARIES.txt
+          cd ../release
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/livetv-darwin-arm64.tar.gz
+            release/livetv-darwin-x64.tar.gz
+            release/livetv-linux-x64.tar.gz
+            release/livetv-windows-x64.zip
+            release/SHA256SUMS
+          generate_release_notes: true

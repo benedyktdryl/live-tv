@@ -1,0 +1,17 @@
+LiveTV.sx — compiled binaries (GitHub Release)
+
+Contents (per archive):
+  livetv*              Interactive CLI / list / watch / streams (same as `bun run cli`)
+  livetv-supervisor*   Optional: ensures AceStream on localhost:6878 via Docker, then runs livetv
+
+Requirements:
+  - VLC (or another player) for playback
+  - For AceStream streams: either Docker + livetv-supervisor, or any engine at 127.0.0.1:6878 (see repo README)
+
+Put both executables in the same directory. Run:
+  ./livetv-supervisor          # macOS/Linux
+  livetv-supervisor.exe        # Windows
+
+Or run ./livetv only if you already started an engine (e.g. docker compose up -d).
+
+Legal note: engine binaries are not bundled; see docs/ENGINE-REDISTRIBUTION.md in the repository.
