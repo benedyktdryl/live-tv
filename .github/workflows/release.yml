@@ -29,6 +29,8 @@ jobs:
           bun run test
         env:
           LIVETV_BASE_URL: https://livetv.sx
+          # livetv.sx often blocks GitHub egress; integration is still run in ci.yml on main/PR
+          SKIP_LIVETV_INTEGRATION: "1"
 
       - name: Cross-compile CLI and supervisor
         run: bun run compile:release

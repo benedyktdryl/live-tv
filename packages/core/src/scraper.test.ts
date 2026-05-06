@@ -218,25 +218,28 @@ describe("embed resolver", () => {
 // ─── Integration: smoke test (requires network) ───────────────────────────────
 // Catches HTML structure changes on livetv.sx before you notice at watch time.
 // Run with: bun test --timeout 30000
+// Release workflow sets SKIP_LIVETV_INTEGRATION=1 (livetv.sx often blocks GitHub Actions egress).
 
-describe("livetv.sx integration", () => {
-  test("fetchEvents returns a non-empty list with expected shape", async () => {
-    const events = await fetchEvents();
+if (process.env.SKIP_LIVETV_INTEGRATION !== "1") {
+  describe("livetv.sx integration", () => {
+    test("fetchEvents returns a non-empty list with expected shape", async () => {
+      const events = await fetchEvents();
 
-    expect(events.length).toBeGreaterThan(0);
+      expect(events.length).toBeGreaterThan(0);
 
-    const first = events[0];
-    expect(first).toHaveProperty("id");
-    expect(first).toHaveProperty("name");
-    expect(first).toHaveProperty("sport");
-    expect(first).toHaveProperty("time");
-    expect(first).toHaveProperty("isLive");
-    expect(first).toHaveProperty("url");
+      const first = events[0];
+      expect(first).toHaveProperty("id");
+      expect(first).toHaveProperty("name");
+      expect(first).toHaveProperty("sport");
+      expect(first).toHaveProperty("time");
+      expect(first).toHaveProperty("isLive");
+      expect(first).toHaveProperty("url");
 
-    expect(first.id).toMatch(/^\d+$/);
-    expect(first.name.length).toBeGreaterThan(0);
-    expect(first.url).toContain("eventinfo");
+      expect(first.id).toMatch(/^\d+$/);
+      expect(first.name.length).toBeGreaterThan(0);
+      expect(first.url).toContain("eventinfo");
 
-    console.log(`  ✓ Got ${events.length} events, ${events.filter((e) => e.isLive).length} live`);
-  }, 30_000);
-});
+      console.log(`  ✓ Got ${events.length} events, ${events.filter((e) => e.isLive).length} live`);
+    }, 30_000);
+  });
+}
