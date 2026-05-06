@@ -11,33 +11,56 @@ Two tools, one repo:
 
 ---
 
-## One-line install (macOS and Linux)
+## Quick install (copy and paste)
 
-For friends who only want to pick a match and watch in **VLC** (no Bun, no git clone).
+Use this if you only want to **pick a match and watch in VLC** — no coding, no project checkout.
 
-**Install once:** [Docker](https://docs.docker.com/get-docker/) (Docker Desktop on Mac, or Docker Engine on Linux) and [VLC](https://www.videolan.org/). Docker must be running before you start the app.
+### Before you paste anything
 
-**Single command** — downloads the latest [GitHub Release](https://github.com/benedyktdryl/live-tv/releases/latest), verifies `SHA256SUMS`, installs into `~/.local/share/livetv/bin` with links in `~/.local/bin`, then starts the interactive picker (same as `livetv-supervisor`; it will try to start the AceStream engine container if nothing is listening on port `6878`). If you tagged a version seconds ago, wait until the green checkmark finishes on the [Actions](https://github.com/benedyktdryl/live-tv/actions) **Release** workflow so the zipballs exist:
+1. **Docker** — install [Docker Desktop](https://docs.docker.com/desktop/) (Mac or Windows) or [Docker Engine](https://docs.docker.com/engine/install/) (Linux). Open it and leave it **running** (whale icon in the menu bar / system tray).
+2. **VLC** — install from [videolan.org](https://www.videolan.org/vlc/) so the app can open the stream.
+
+That is all you need besides the one command for your system.
+
+### Mac or Linux (Terminal)
+
+**Install and open the match list** (recommended):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/benedyktdryl/live-tv/main/scripts/install-livetv.sh | bash -s -- --run
 ```
 
-Install **without** starting the UI immediately (then run `~/.local/bin/livetv-supervisor` when you are ready):
+**Install only** — run the app later with `~/.local/bin/livetv-supervisor`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/benedyktdryl/live-tv/main/scripts/install-livetv.sh | bash
 ```
 
-**Linux note:** the install script supports **x86_64/amd64** Linux (Apple Silicon Linux is not built yet). **macOS** supports Apple Silicon (`arm64`) and Intel (`x86_64`).
+Supports **macOS** (Apple and Intel) and **64-bit Linux** (`x86_64` / `amd64`). The script downloads the latest [release](https://github.com/benedyktdryl/live-tv/releases/latest), checks the checksum, and puts shortcuts in `~/.local/bin`.
 
-**Fork or mirror:** point the installer at another repo that publishes the same release asset names:
+### Windows (PowerShell)
 
-```bash
-LIVETV_INSTALL_REPO=yourname/live-tv curl -fsSL https://raw.githubusercontent.com/yourname/live-tv/main/scripts/install-livetv.sh | bash -s -- --run
+Open **Windows PowerShell** (or “Terminal”). **Install and open the match list**:
+
+```powershell
+$env:LIVETV_INSTALL_RUN='1'; irm https://raw.githubusercontent.com/benedyktdryl/live-tv/main/scripts/install-livetv.ps1 | iex
 ```
 
-**Windows:** there is no one-line shell installer yet; download `livetv-windows-x64.zip` from [Releases](https://github.com/benedyktdryl/live-tv/releases/latest), extract both `.exe` files to the same folder, install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) and VLC, then run `livetv-supervisor-windows-x64.exe`.
+**Install only** — the script prints the path to double‑click or run later:
+
+```powershell
+irm https://raw.githubusercontent.com/benedyktdryl/live-tv/main/scripts/install-livetv.ps1 | iex
+```
+
+Needs **64-bit Windows** and PowerShell 5.1+ (default on Windows 10 and 11). Files go under `%LOCALAPPDATA%\livetv\bin\`.
+
+### Manual download
+
+Prefer a zip? [Latest release](https://github.com/benedyktdryl/live-tv/releases/latest) has `.tar.gz` / `.zip` and checksums.
+
+### Forks and custom repos
+
+If you publish your own copy with the same release file names, set `LIVETV_INSTALL_REPO=owner/repo` before the command (bash or PowerShell). Point the `curl` / `irm` URL at the `main` branch of **your** fork so the script matches your repo.
 
 ---
 
@@ -214,7 +237,7 @@ Useful for quick lookups, scripting, or watching in VLC without Stremio.
 
 ### Compiled binaries (GitHub Releases)
 
-Pushing a git tag matching `v*` (for example `v0.2.0`) runs [`.github/workflows/release.yml`](.github/workflows/release.yml): cross-compiled **`livetv`** and **`livetv-supervisor`** for macOS arm64, macOS x64, Linux x64, and Windows x64, packaged as `.tar.gz` / `.zip` plus `SHA256SUMS`. Friends can use the [one-line install](#one-line-install-macos-and-linux) above instead of downloading archives by hand.
+Pushing a git tag matching `v*` (for example `v0.2.0`) runs [`.github/workflows/release.yml`](.github/workflows/release.yml): cross-compiled **`livetv`** and **`livetv-supervisor`** for macOS arm64, macOS x64, Linux x64, and Windows x64, packaged as `.tar.gz` / `.zip` plus `SHA256SUMS`. Friends can use [Quick install (copy and paste)](#quick-install-copy-and-paste) instead of downloading archives by hand.
 
 Extract both executables from the archive into the same directory. **`livetv-supervisor`** checks `http://127.0.0.1:6878/…` (or `ACE_ENGINE_HOST` / `ACE_ENGINE_PORT`); if the engine is down it tries **`docker run`** with [`jopsis/acestream:latest`](https://hub.docker.com/r/jopsis/acestream) (see [docs/ENGINE-REDISTRIBUTION.md](docs/ENGINE-REDISTRIBUTION.md) — engine bits are not bundled in these zips). Then it runs **`livetv`** with the same arguments as `bun run cli`. Run `./livetv-supervisor` (or `livetv-supervisor.exe` on Windows) instead of `livetv` when you want that behavior; use `./livetv` alone if you already started an engine (e.g. `docker compose up -d`).
 
