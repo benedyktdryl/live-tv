@@ -3,8 +3,37 @@
  * Ensures an AceStream HTTP engine is reachable (default 127.0.0.1:6878), then execs the livetv CLI.
  * If the engine is down, tries Docker (see docs/ENGINE-REDISTRIBUTION.md). Does not bundle engine binaries.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
+
+/**
+ * Bun resolves execPath to the real binary path. Installs keep versioned names
+ * (livetv-darwin-arm64) next to livetv-supervisor-*; also allow plain livetv / livetv.exe.
+ */
+function findCompiledCliNextToSupervisor(supervisorPath: string): string | null {
+  const dir = path.dirname(supervisorPath);
+  const plain = process.platform === "win32" ? "livetv.exe" : "livetv";
+  const direct = path.join(dir, plain);
+  if (existsSync(direct)) return direct;
+
+  try {
+    const names = readdirSync(dir);
+    const candidates = names.filter(
+      (n) =>
+        n.startsWith("livetv") &&
+        !n.includes("supervisor") &&
+        !n.endsWith(".txt") &&
+        !n.endsWith(".md"),
+    );
+    for (const n of candidates.sort()) {
+      const full = path.join(dir, n);
+      if (existsSync(full)) return full;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 const CONTAINER_NAME = "livetv-acestream-engine";
 const DEFAULT_IMAGE = "jopsis/acestream:latest";
@@ -131,10 +160,8 @@ function cliPathAndArgs(forwarded: string[]): { cmd: string; args: string[] } {
   }
 
   const dir = path.dirname(process.execPath);
-  const base = process.platform === "win32" ? "livetv.exe" : "livetv";
-  const compiled = path.join(dir, base);
-
-  if (existsSync(compiled)) {
+  const compiled = findCompiledCliNextToSupervisor(process.execPath);
+  if (compiled) {
     return { cmd: compiled, args: forwarded };
   }
 
@@ -148,8 +175,9 @@ function cliPathAndArgs(forwarded: string[]): { cmd: string; args: string[] } {
     return { cmd: Bun.which("bun") ?? "bun", args: [fallback, ...forwarded] };
   }
 
+  const plain = process.platform === "win32" ? "livetv.exe" : "livetv";
   console.error(
-    `Could not find livetv CLI next to this binary (${compiled}).\n` +
+    `Could not find livetv CLI next to this binary (${path.join(dir, plain)}).\n` +
       `Set LIVETV_CLI to the livetv executable or run from the repo with bun.`,
   );
   process.exit(1);

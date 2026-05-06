@@ -129,6 +129,10 @@ install -m0755 "$SUP" "$BINDIR/$SUP_NAME"
 CLI_INST="$BINDIR/$CLI_NAME"
 SUP_INST="$BINDIR/$SUP_NAME"
 
+# Plain names beside versioned binaries so Bun's resolved execPath dirname finds the CLI.
+ln -sf "$CLI_INST" "$BINDIR/livetv"
+ln -sf "$SUP_INST" "$BINDIR/livetv-supervisor"
+
 ln -sf "$CLI_INST" "$HOME/.local/bin/livetv"
 ln -sf "$SUP_INST" "$HOME/.local/bin/livetv-supervisor"
 

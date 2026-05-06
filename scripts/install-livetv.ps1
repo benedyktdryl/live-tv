@@ -62,14 +62,28 @@ try {
     Write-Error "Zip did not contain expected executables."
   }
 
+  $plainCli = Join-Path $bin "livetv.exe"
+  $plainSup = Join-Path $bin "livetv-supervisor.exe"
+  try {
+    if (Test-Path $plainCli) { Remove-Item -Force $plainCli }
+    if (Test-Path $plainSup) { Remove-Item -Force $plainSup }
+    New-Item -ItemType HardLink -Path $plainCli -Target $cli | Out-Null
+    New-Item -ItemType HardLink -Path $plainSup -Target $sup | Out-Null
+  }
+  catch {
+    # Non-NTFS or policy: supervisor still finds livetv-windows-x64.exe in the same folder.
+  }
+
+  $runSup = if (Test-Path $plainSup) { $plainSup } else { $sup }
+
   Write-Host ""
   Write-Host "Installed to $bin"
   Write-Host "Start the app (after Docker Desktop is running):"
-  Write-Host "  & `"$sup`""
+  Write-Host "  & `"$runSup`""
   Write-Host ""
 
   if ($env:LIVETV_INSTALL_RUN -eq "1") {
-    & $sup
+    & $runSup
   }
 }
 finally {
