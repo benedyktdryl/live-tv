@@ -17,7 +17,7 @@ For friends who only want to pick a match and watch in **VLC** (no Bun, no git c
 
 **Install once:** [Docker](https://docs.docker.com/get-docker/) (Docker Desktop on Mac, or Docker Engine on Linux) and [VLC](https://www.videolan.org/). Docker must be running before you start the app.
 
-**Single command** — downloads the latest [GitHub Release](https://github.com/benedyktdryl/live-tv/releases/latest), verifies `SHA256SUMS`, installs into `~/.local/share/livetv/bin` with links in `~/.local/bin`, then starts the interactive picker (same as `livetv-supervisor`; it will try to start the AceStream engine container if nothing is listening on port `6878`):
+**Single command** — downloads the latest [GitHub Release](https://github.com/benedyktdryl/live-tv/releases/latest), verifies `SHA256SUMS`, installs into `~/.local/share/livetv/bin` with links in `~/.local/bin`, then starts the interactive picker (same as `livetv-supervisor`; it will try to start the AceStream engine container if nothing is listening on port `6878`). If you tagged a version seconds ago, wait until the green checkmark finishes on the [Actions](https://github.com/benedyktdryl/live-tv/actions) **Release** workflow so the zipballs exist:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/benedyktdryl/live-tv/main/scripts/install-livetv.sh | bash -s -- --run
