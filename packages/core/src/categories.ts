@@ -151,9 +151,11 @@ export function dayLabel(dateStr: string): string {
 export interface Prefs {
   /** Default sport category shown at the top of the category list */
   defaultCategory: string | null;
+  /** Last selected source connector ids (livetv, buffsports, …) */
+  enabledSources: string[] | null;
 }
 
-const DEFAULT_PREFS: Prefs = { defaultCategory: null };
+const DEFAULT_PREFS: Prefs = { defaultCategory: null, enabledSources: null };
 
 function prefsPath(): string {
   return path.join(os.homedir(), ".config", "live-tv", "prefs.json");

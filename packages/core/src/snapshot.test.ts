@@ -13,7 +13,12 @@
 
 import { describe, expect, test } from "bun:test";
 import path from "path";
-import { parseEventListFromHtml, parseStreamLinksFromHtml, parseEventDate } from "./scraper.js";
+import {
+  parseEventListFromHtml,
+  parseStreamLinksFromHtml,
+  parseEventDate,
+  LIVETV_SOURCE_ID,
+} from "./connectors/livetv.js";
 import { extractAliezM3u8FromHtml, extractGenericM3u8FromHtml } from "./embed-resolver.js";
 import { categorizeEvent, groupByCategory, groupByDate, dayLabel } from "./categories.js";
 
@@ -33,7 +38,8 @@ describe("parseEventListFromHtml — real fixture", () => {
     expect(events.length).toBeGreaterThan(400);
     // Every event has mandatory fields
     for (const e of events) {
-      expect(e.id).toMatch(/^\d+$/);
+      expect(e.id).toMatch(/^livetv:\d+$/);
+      expect(e.source).toBe(LIVETV_SOURCE_ID);
       expect(e.name.length).toBeGreaterThan(0);
       expect(e.url).toContain("/eventinfo/");
     }
@@ -54,7 +60,7 @@ describe("parseEventListFromHtml — real fixture", () => {
     const html = await fixture("event-list.html");
     const events = parseEventListFromHtml(html);
 
-    const modus = events.find((e) => e.id === "378069787");
+    const modus = events.find((e) => e.id === "livetv:378069787");
     expect(modus).toBeDefined();
     expect(modus!.name).toBe("MODUS Super Series");
     expect(modus!.isLive).toBe(true);
@@ -69,7 +75,7 @@ describe("parseEventListFromHtml — real fixture", () => {
     const html = await fixture("event-list.html");
     const events = parseEventListFromHtml(html);
 
-    const kolos = events.find((e) => e.id === "378058838");
+    const kolos = events.find((e) => e.id === "livetv:378058838");
     expect(kolos).toBeDefined();
     expect(kolos!.name).toBe("Kolos Kovalivka (W) \u2013 SeaSters (W)");
     expect(kolos!.isLive).toBe(false);
@@ -146,8 +152,7 @@ describe("parseStreamLinksFromHtml — synthetic all-stream-types fixture", () =
 
     const aliez = streams.find((s) => s.type === "webplayer" && s.provider === "Aliez");
     expect(aliez).toBeDefined();
-    expect(aliez!.url).toContain("t=alieztv");
-    expect(aliez!.url).toContain("c=123");
+    expect(aliez!.url).toBe("https://cdn.livetv881.me/webplayer2.php?t=alieztv&c=123&lang=en");
     expect(aliez!.bitrate).toBe("2700kbps");
   });
 
@@ -157,8 +162,7 @@ describe("parseStreamLinksFromHtml — synthetic all-stream-types fixture", () =
 
     const voodc = streams.find((s) => s.type === "webplayer" && s.provider === "Voodc");
     expect(voodc).toBeDefined();
-    expect(voodc!.url).toContain("t=voodc");
-    expect(voodc!.url).toContain("c=456");
+    expect(voodc!.url).toBe("https://cdn.livetv881.me/webplayer2.php?t=voodc&c=456&lang=en");
     expect(voodc!.bitrate).toBeNull();
   });
 

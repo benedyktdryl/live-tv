@@ -14,6 +14,9 @@ import {
   loadPrefs,
   savePrefs,
   CATEGORIES,
+  listConnectors,
+  parseSourceIds,
+  normalizeEventId,
 } from "@live-tv/core";
 import type { LiveEvent } from "@live-tv/core";
 // @clack/prompts exports Option<V> but not under that name publicly, so define locally
@@ -95,43 +98,46 @@ function cmdHelp() {
   };
 
   console.log(`
-${c.bold("LiveTV.sx")}  ${c.dim("— ad-free sports streaming CLI")}
+${c.bold("live-tv")}  ${c.dim("— multi-source sports streaming CLI")}
 
 ${c.bold("USAGE")}
-  ${c.cyan("bun run cli")}                              Interactive picker
-  ${c.cyan("bun run cli --preset")} ${c.yellow("<code>")}              Replay saved filters, skip to event list
-  ${c.cyan("bun run cli list")}                         Print all events as JSON
-  ${c.cyan("bun run cli list --sport")} ${c.yellow("<category>")}      Filter by sport category
-  ${c.cyan("bun run cli list --date")}  ${c.yellow("<day>")}           Filter by day
-  ${c.cyan("bun run cli watch")} ${c.yellow("<event-id>")}             Open best stream in VLC
-  ${c.cyan("bun run cli streams")} ${c.yellow("<event-id>")}           Print resolved stream URLs as JSON
-  ${c.cyan("bun run cli config")}                       Set default sport (saved to prefs)
-  ${c.cyan("bun run cli help")}                         Show this help
+  ${c.cyan("livetv")}                                   Interactive picker
+  ${c.cyan("livetv --preset")} ${c.yellow("<code>")}                   Replay saved filters, skip to event list
+  ${c.cyan("livetv list")}                              Print all events as JSON
+  ${c.cyan("livetv list --sources")} ${c.yellow("livetv,dlhd")}       Limit to specific sources
+  ${c.cyan("livetv list --sport")} ${c.yellow("<category>")}           Filter by sport category
+  ${c.cyan("livetv list --date")}  ${c.yellow("<day>")}                Filter by day
+  ${c.cyan("livetv watch")} ${c.yellow("<source:id>")}                Open best stream in VLC
+  ${c.cyan("livetv streams")} ${c.yellow("<source:id>")}              Print resolved stream URLs as JSON
+  ${c.dim("Legacy bare ids")}  ${c.yellow("371315132")} → treated as ${c.yellow("livetv:371315132")}
+  ${c.cyan("livetv config")}                            Set default sport (saved to prefs)
+  ${c.cyan("livetv help")}                              Show this help
 
 ${c.bold("LIST FLAGS")}
   ${c.yellow("--sport")} ${c.dim("<category>")}   Match category name or raw sport string (case-insensitive)
                    ${c.dim("Examples:")} --sport football  --sport tennis  --sport mlb
   ${c.yellow("--date")}  ${c.dim("<day>")}        today | tomorrow | YYYY-MM-DD
                    ${c.dim("Examples:")} --date today  --date tomorrow  --date 2026-05-06
-  ${c.dim("Flags can be combined:")}  bun run cli list --sport football --date today
+  ${c.dim("Flags can be combined:")}  livetv list --sport football --date today
 
 ${c.bold("SPORT CATEGORIES")}
   ${CATEGORIES.map((c2) => `${c2.emoji} ${c2.name}`).join("   ")}
   🏅 Other
 
 ${c.bold("INTERACTIVE MODE")}  ${c.dim("(no arguments)")}
+  ${c.dim("Step 0")}  Sources       — pick one or more connectors (saved in prefs)
   ${c.dim("Step 1")}  Sport filter  — choose a category or All sports
   ${c.dim("Step 2")}  Day filter    — choose Today / Tomorrow / … or All days
   ${c.dim("Step 3")}  Search        — optional name filter (shown when >100 events match)
   ${c.dim("Step 4")}  Event list    — live events shown first, then sorted by time
   ${c.dim("Step 5")}  Stream picker — AceStream → VLC, YouTube → VLC, web embed → browser
   ${c.dim("tip:")} After filtering, a ${c.yellow("--preset")} code is printed — paste it next time to skip filters.
-  ${c.dim("tip:")} Run ${c.cyan("bun run cli config")} to set a default sport that is pre-selected.
+  ${c.dim("tip:")} Run ${c.cyan("livetv config")} to set a default sport that is pre-selected.
 
 ${c.bold("PRESETS")}
   After any interactive session the CLI prints a ${c.yellow("--preset")} code encoding your filters.
   Re-run it to jump straight to the filtered event list with fresh event data:
-    ${c.dim("bun run cli --preset eyJzcG9ydCI6IkZvb3RiYWxsIiwiZGF5IjoiYWxsIn0")}
+    ${c.dim("livetv --preset eyJzcG9ydCI6IkZvb3RiYWxsIiwiZGF5IjoiYWxsIn0")}
   The preset contains: sport · day · search query (all optional).
   Dates are stored as ISO strings (${c.yellow("YYYY-MM-DD")}); use ${c.yellow('"all"')} for any day.
 
@@ -146,8 +152,17 @@ ${c.bold("ACESTREAM SETUP")}
   ${c.dim("Manual:")}
     https://acestream.org
 
+${c.bold("SOURCES")}
+  ${listConnectors()
+    .map((conn) => `  ${conn.id.padEnd(12)} ${conn.displayName}  (${conn.baseUrl})`)
+    .join("\n")}
+
 ${c.bold("ENVIRONMENT")}
-  ${c.yellow("LIVETV_BASE_URL")}    Override scrape base URL  ${c.dim("(default: https://livetv.sx)")}
+  ${c.yellow("LIVE_TV_SOURCES")}      Comma-separated source ids (same as --sources)
+  ${c.yellow("LIVETV_BASE_URL")}    Override livetv.sx base URL
+  ${c.yellow("BUFFSPORTS_BASE_URL")}  Override BuffStreams base URL
+  ${c.yellow("DLHD_BASE_URL")}      Override DLHD base URL
+  ${c.yellow("STRUMYK_BASE_URL")}   Override Strumyk base URL
   ${c.yellow("ACE_ENGINE_HOST")}    AceStream engine host     ${c.dim("(default: 127.0.0.1)")}
   ${c.yellow("ACE_ENGINE_PORT")}    AceStream engine port     ${c.dim("(default: 6878)")}
 `);
@@ -155,8 +170,12 @@ ${c.bold("ENVIRONMENT")}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const SOURCE_LABELS = new Map(listConnectors().map((c) => [c.id, c.displayName]));
+
 function formatEvent(event: LiveEvent): string {
   const parts: string[] = [];
+  const src = SOURCE_LABELS.get(event.source) ?? event.source;
+  parts.push(`[${src}]`);
   if (event.isLive) {
     parts.push("🔴");
   } else if (event.date) {
@@ -167,6 +186,44 @@ function formatEvent(event: LiveEvent): string {
   if (event.score) parts.push(`[${event.score}]`);
   if (event.sport) parts.push(`(${event.sport})`);
   return parts.join("  ");
+}
+
+function resolveSourceIdsFromArgv(): string[] | undefined {
+  const env = process.env.LIVE_TV_SOURCES;
+  const flagIdx = process.argv.indexOf("--sources");
+  if (flagIdx !== -1 && process.argv[flagIdx + 1]) {
+    return parseSourceIds(process.argv[flagIdx + 1]);
+  }
+  if (env) return parseSourceIds(env);
+  return undefined;
+}
+
+let activeSourceIds: string[] = resolveSourceIdsFromArgv() ?? [];
+
+async function pickSources(prefs: ReturnType<typeof loadPrefs>): Promise<string[] | null> {
+  if (activeSourceIds.length > 0) return activeSourceIds;
+
+  const connectors = listConnectors();
+  const saved = prefs.enabledSources?.filter((id) => connectors.some((c) => c.id === id));
+
+  const defaultSelected = saved && saved.length > 0 ? saved : connectors.map((c) => c.id);
+
+  const choice = await p.multiselect({
+    message: "Select stream sources:",
+    options: connectors.map((c) => ({
+      value: c.id,
+      label: c.displayName,
+      hint: c.baseUrl,
+    })),
+    initialValues: defaultSelected,
+    required: true,
+  });
+
+  if (p.isCancel(choice)) return null;
+  const selected = choice as string[];
+  activeSourceIds = selected;
+  savePrefs({ ...prefs, enabledSources: selected });
+  return selected;
 }
 
 function liveCount(events: LiveEvent[]): number {
@@ -221,8 +278,8 @@ async function openBrowser(url: string): Promise<void> {
 
 // ─── Non-interactive commands ─────────────────────────────────────────────────
 
-async function cmdList(flags: { sport?: string; date?: string } = {}) {
-  let events = await fetchEvents();
+async function cmdList(flags: { sport?: string; date?: string; sources?: string[] } = {}) {
+  let events = await fetchEvents(flags.sources);
 
   if (flags.sport) {
     const q = flags.sport.toLowerCase();
@@ -248,7 +305,7 @@ async function cmdList(flags: { sport?: string; date?: string } = {}) {
 }
 
 async function cmdWatch(eventId: string) {
-  const detail = await fetchEventDetail(eventId);
+  const detail = await fetchEventDetail(normalizeEventId(eventId));
   if (!detail) {
     console.error(`Event ${eventId} not found`);
     process.exit(1);
@@ -269,7 +326,7 @@ async function cmdWatch(eventId: string) {
 }
 
 async function cmdStreams(eventId: string) {
-  const detail = await fetchEventDetail(eventId);
+  const detail = await fetchEventDetail(normalizeEventId(eventId));
   if (!detail) {
     console.error(`Event ${eventId} not found`);
     process.exit(1);
@@ -281,7 +338,7 @@ async function cmdStreams(eventId: string) {
 async function cmdConfig() {
   const prefs = loadPrefs();
 
-  p.intro("LiveTV.sx — Preferences");
+  p.intro("live-tv — Preferences");
 
   const choice = await p.select({
     message: "Default sport category (shown first in interactive mode):",
@@ -436,7 +493,7 @@ async function pickStream(eventId: string, aceAvailable: boolean): Promise<void>
 
   let detail: Awaited<ReturnType<typeof fetchEventDetail>>;
   try {
-    detail = await fetchEventDetail(eventId);
+    detail = await fetchEventDetail(normalizeEventId(eventId));
     spin.stop(detail ? `Found ${detail.streams.length} stream(s)` : "No detail found");
   } catch (err) {
     spin.stop("Failed to fetch streams");
@@ -489,7 +546,9 @@ async function pickStream(eventId: string, aceAvailable: boolean): Promise<void>
 }
 
 // Shared startup: check AceStream + fetch events
-async function startup(): Promise<{ aceAvailable: boolean; allEvents: LiveEvent[] }> {
+async function startup(
+  sourceIds: string[],
+): Promise<{ aceAvailable: boolean; allEvents: LiveEvent[] }> {
   const aceAvailable = await isAceEngineAvailable();
   if (!aceAvailable) {
     p.log.warn(
@@ -503,8 +562,8 @@ async function startup(): Promise<{ aceAvailable: boolean; allEvents: LiveEvent[
   spin.start("Fetching events…");
   let allEvents: LiveEvent[];
   try {
-    allEvents = await fetchEvents();
-    spin.stop(`Loaded ${allEvents.length} events`);
+    allEvents = await fetchEvents(sourceIds);
+    spin.stop(`Loaded ${allEvents.length} events from ${sourceIds.join(", ")}`);
   } catch (err) {
     spin.stop("Failed to fetch events");
     p.log.error(String(err));
@@ -521,10 +580,10 @@ async function startup(): Promise<{ aceAvailable: boolean; allEvents: LiveEvent[
 
 // ─── Interactive mode ─────────────────────────────────────────────────────────
 
-async function runWithPreset(preset: FilterPreset): Promise<void> {
-  p.intro(`LiveTV.sx  —  ${describePreset(preset)}`);
+async function runWithPreset(preset: FilterPreset, sourceIds: string[]): Promise<void> {
+  p.intro(`live-tv  —  ${describePreset(preset)}`);
 
-  const { aceAvailable, allEvents } = await startup();
+  const { aceAvailable, allEvents } = await startup(sourceIds);
   const filtered = applyPreset(allEvents, preset);
 
   if (filtered.length === 0) {
@@ -537,7 +596,7 @@ async function runWithPreset(preset: FilterPreset): Promise<void> {
 
   // Show the preset code again so the user can copy it easily
   p.log.info(
-    `💾 Preset  ${describePreset(preset)}\n` + `   bun run cli --preset ${encodePreset(preset)}`,
+    `💾 Preset  ${describePreset(preset)}\n` + `   livetv --preset ${encodePreset(preset)}`,
   );
 
   const eventId = await pickEvent(filtered);
@@ -550,10 +609,16 @@ async function runWithPreset(preset: FilterPreset): Promise<void> {
 }
 
 async function interactive(): Promise<void> {
-  p.intro("LiveTV.sx — Sports Stream Picker");
+  p.intro("live-tv — Sports Stream Picker");
 
   const prefs = loadPrefs();
-  const { aceAvailable, allEvents } = await startup();
+  const sourceIds = await pickSources(prefs);
+  if (!sourceIds) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
+
+  const { aceAvailable, allEvents } = await startup(sourceIds);
 
   // ── Step 1: Sport filter ──────────────────────────────────────────────────
 
@@ -603,7 +668,7 @@ async function interactive(): Promise<void> {
     day: dayChoice,
     ...(searchResult.query ? { search: searchResult.query } : {}),
   };
-  p.log.info(`💾 Save as preset:\n   bun run cli --preset ${encodePreset(preset)}`);
+  p.log.info(`💾 Save as preset:\n   livetv --preset ${encodePreset(preset)}`);
 
   // ── Step 4: Event picker ──────────────────────────────────────────────────
 
@@ -628,13 +693,24 @@ function parseFlag(flag: string): string | undefined {
 }
 
 // Handle --preset / --help / -h as flags on the default command
+function sourcesFromArgv(): string[] {
+  return activeSourceIds.length > 0 ? activeSourceIds : parseSourceIds(process.env.LIVE_TV_SOURCES);
+}
+
 if (command === "--preset" && args[0]) {
   const preset = decodePreset(args[0]);
   if (!preset) {
-    console.error("Invalid preset code. Run `bun run cli help` for usage.");
+    console.error("Invalid preset code. Run `livetv help` for usage.");
     process.exit(1);
   }
-  await runWithPreset(preset);
+  const prefs = loadPrefs();
+  let sourceIds = sourcesFromArgv();
+  if (sourceIds.length === 0) {
+    const picked = await pickSources(prefs);
+    if (!picked) process.exit(0);
+    sourceIds = picked;
+  }
+  await runWithPreset(preset, sourceIds);
 } else if (command === "--help" || command === "-h") {
   cmdHelp();
 } else {
@@ -643,6 +719,7 @@ if (command === "--preset" && args[0]) {
       await cmdList({
         sport: parseFlag("--sport"),
         date: parseFlag("--date"),
+        sources: sourcesFromArgv(),
       });
       break;
     case "watch":
@@ -665,7 +742,9 @@ if (command === "--preset" && args[0]) {
     case "help":
       cmdHelp();
       break;
-    default:
+    default: {
+      activeSourceIds = sourcesFromArgv();
       await interactive();
+    }
   }
 }

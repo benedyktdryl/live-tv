@@ -1,5 +1,8 @@
 export interface LiveEvent {
+  /** Composite id: `{source}:{nativeId}` */
   id: string;
+  /** Connector id (livetv, buffsports, dlhd, strumyk) */
+  source: string;
   name: string;
   slug: string;
   sport: string;

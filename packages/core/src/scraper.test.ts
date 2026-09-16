@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parse } from "node-html-parser";
-import { fetchEvents } from "./scraper.js";
+import { absoluteUrl, livetvConnector, parseStreamLinksFromHtml } from "./connectors/livetv.js";
 import { resolveStreams, resolveStreamsAsync } from "./resolver.js";
 import { resolveEmbedStream } from "./embed-resolver.js";
 import type { StreamLink } from "./types.js";
@@ -8,41 +7,29 @@ import type { StreamLink } from "./types.js";
 // ─── Unit: stream link HTML parsing ──────────────────────────────────────────
 // These run without network access and catch HTML selector regressions.
 
+describe("absoluteUrl", () => {
+  test("keeps absolute http(s) URLs", () => {
+    expect(absoluteUrl("https://cdn.livetv881.me/webplayer2.php?t=ifr")).toBe(
+      "https://cdn.livetv881.me/webplayer2.php?t=ifr",
+    );
+  });
+
+  test("prefixes protocol-relative URLs", () => {
+    expect(absoluteUrl("//cdn.livetv881.me/webplayer2.php?t=alieztv&c=1")).toBe(
+      "https://cdn.livetv881.me/webplayer2.php?t=alieztv&c=1",
+    );
+  });
+
+  test("resolves root-relative webplayer.php against livetv origin", () => {
+    expect(
+      absoluteUrl("/webplayer.php?t=ifr&c=3072972&lang=en&eid=399915076&lid=3072972&ci=265&si=1"),
+    ).toBe(
+      "https://livetv.sx/webplayer.php?t=ifr&c=3072972&lang=en&eid=399915076&lid=3072972&ci=265&si=1",
+    );
+  });
+});
+
 describe("stream link parsing", () => {
-  function parseStreamLinksFromHtml(html: string) {
-    const root = parse(html);
-    const streams: StreamLink[] = [];
-
-    for (const table of root.querySelectorAll("table.lnktbj")) {
-      const anchors = table.querySelectorAll("a");
-      if (!anchors.length) continue;
-      const lastAnchor = anchors[anchors.length - 1];
-      const href = lastAnchor.getAttribute("href") ?? "";
-      if (!href || href === "/") continue;
-
-      const bitrateTd = table.querySelector("td.bitrate");
-      const bitrate = bitrateTd?.text?.trim() || null;
-
-      if (href.startsWith("acestream://")) {
-        streams.push({ type: "acestream", url: href, bitrate, provider: "AceStream" });
-      } else if (href.includes("youtub")) {
-        const m = href.match(/[?&](?:v=|c=)([A-Za-z0-9_-]{11})/);
-        if (m) {
-          streams.push({
-            type: "youtube",
-            url: `https://www.youtube.com/watch?v=${m[1]}`,
-            bitrate,
-            provider: "YouTube",
-          });
-        }
-      } else if (href.includes("webplayer") || href.includes("alieztv") || href.includes("ifr")) {
-        const fullUrl = href.startsWith("http") ? href : `https:${href}`;
-        streams.push({ type: "webplayer", url: fullUrl, bitrate, provider: "Aliez" });
-      }
-    }
-    return streams;
-  }
-
   test("extracts acestream link with bitrate", () => {
     const html = `
       <table class="lnktbj">
@@ -85,8 +72,26 @@ describe("stream link parsing", () => {
     const streams = parseStreamLinksFromHtml(html);
     expect(streams).toHaveLength(1);
     expect(streams[0].type).toBe("webplayer");
-    expect(streams[0].url).toStartWith("https:");
+    expect(streams[0].url).toBe("https://livetv.sx/webplayer.php?t=alieztv&c=ch1&lang=en");
     expect(streams[0].bitrate).toBe("2700kbps");
+  });
+
+  test("resolves root-relative /webplayer.php iframe links", () => {
+    const html = `
+      <table class="lnktbj">
+        <tr>
+          <td></td>
+          <td></td>
+          <td><a href="/webplayer.php?t=ifr&c=3072972&lang=en&eid=399915076&lid=3072972&ci=265&si=1">Play</a></td>
+        </tr>
+      </table>`;
+    const streams = parseStreamLinksFromHtml(html);
+    expect(streams).toHaveLength(1);
+    expect(streams[0].type).toBe("webplayer");
+    expect(streams[0].url).toBe(
+      "https://livetv.sx/webplayer.php?t=ifr&c=3072972&lang=en&eid=399915076&lid=3072972&ci=265&si=1",
+    );
+    expect(streams[0].url).not.toMatch(/^https:\/[^/]/);
   });
 
   test("skips empty / bare-slash hrefs", () => {
@@ -223,7 +228,7 @@ describe("embed resolver", () => {
 if (process.env.SKIP_LIVETV_INTEGRATION !== "1") {
   describe("livetv.sx integration", () => {
     test("fetchEvents returns a non-empty list with expected shape", async () => {
-      const events = await fetchEvents();
+      const events = await livetvConnector.listEvents();
 
       expect(events.length).toBeGreaterThan(0);
 
@@ -235,7 +240,8 @@ if (process.env.SKIP_LIVETV_INTEGRATION !== "1") {
       expect(first).toHaveProperty("isLive");
       expect(first).toHaveProperty("url");
 
-      expect(first.id).toMatch(/^\d+$/);
+      expect(first.id).toMatch(/^livetv:\d+$/);
+      expect(first.source).toBe("livetv");
       expect(first.name.length).toBeGreaterThan(0);
       expect(first.url).toContain("eventinfo");
 

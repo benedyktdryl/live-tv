@@ -7,7 +7,7 @@
     "cli": "bun packages/cli/src/index.ts",
     "supervisor": "bun packages/launcher/src/index.ts",
     "dev": "bun packages/addon/src/index.ts",
-    "test": "bun test packages/core/src/scraper.test.ts --timeout 30000",
+    "test": "bun test packages/core/src packages/launcher/src --timeout 30000",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint packages/",
     "format": "oxfmt packages/",

@@ -1,6 +1,6 @@
 # AceStream engine: redistribution and runtime
 
-This project **does not ship** AceStream engine binaries in GitHub Releases. Users run an engine they obtain separately, or the optional **`livetv-supervisor`** starts the public Docker image **`jopsis/acestream`** on the user’s machine (the image is pulled from Docker Hub at runtime by the user’s Docker daemon — we do not redistribute that image inside our archives).
+This project **does not ship** AceStream engine binaries in GitHub Releases. Users run an engine they obtain separately, or the optional **`livetv-supervisor`** starts the public Docker image **`jopsis/acestream`** on the user’s machine (the image is pulled from Docker Hub at runtime by the user’s Docker or Podman — we do not redistribute that image inside our archives).
 
 ## Why
 
@@ -10,7 +10,7 @@ This project **does not ship** AceStream engine binaries in GitHub Releases. Use
 ## What we do instead
 
 1. **Compiled `livetv` CLI** — talks to whatever engine is already listening on `ACE_ENGINE_HOST` / `ACE_ENGINE_PORT` (default `127.0.0.1:6878`).
-2. **Optional `livetv-supervisor`** — if nothing answers on that port, it tries **`docker run`** (or `docker start`) so the user’s Docker pulls and runs the engine container locally. On exit it can **`docker stop`** the container it started (see supervisor help). No engine files are bundled in our zip/tarballs.
+2. **Optional `livetv-supervisor`** — if nothing answers on that port, it tries **`docker run`** / **`podman run`** (or `start`) so the user’s container runtime pulls and runs the engine locally. On macOS, Podman needs a running machine (`podman machine start`). On exit it can **`stop`** the container it started (see supervisor help). No engine files are bundled in our zip/tarballs.
 
 ## If you want a fully offline “one DMG” later
 

@@ -1,6 +1,6 @@
 # live-tv
 
-Watch live sports directly in Stremio (or VLC) — no browser fights, no popup ads. Scrapes stream links from [livetv.sx](https://livetv.sx) and serves them cleanly.
+Watch live sports directly in Stremio (or VLC) — no browser fights, no popup ads. Aggregates schedules and stream links from multiple sources and serves them through one CLI and Stremio add-on.
 
 Two tools, one repo:
 
@@ -17,7 +17,7 @@ Use this if you only want to **pick a match and watch in VLC** — no coding, no
 
 ### Before you paste anything
 
-1. **Docker** — install [Docker Desktop](https://docs.docker.com/desktop/) (Mac or Windows) or [Docker Engine](https://docs.docker.com/engine/install/) (Linux). Open it and leave it **running** (whale icon in the menu bar / system tray).
+1. **Docker or Podman** — install [Docker Desktop](https://docs.docker.com/desktop/) (Mac or Windows), [Docker Engine](https://docs.docker.com/engine/install/) (Linux), or [Podman](https://podman.io). Leave Docker Desktop **running** (whale icon), or on macOS start the Podman VM with `podman machine start`.
 2. **VLC** — install from [videolan.org](https://www.videolan.org/vlc/) so the app can open the stream.
 
 That is all you need besides the one command for your system.
@@ -64,9 +64,33 @@ If you publish your own copy with the same release file names, set `LIVETV_INSTA
 
 ---
 
+## Sources
+
+| ID | Site | Notes |
+|----|------|--------|
+| `livetv` | [livetv.sx](https://livetv.sx) | AceStream, YouTube, Aliez/Voodc embeds |
+| `buffsports` | [buffsports.io](https://buffsports.io/watch-soccer) | Soccer schedule (SSR); player loads in browser |
+| `dlhd` | [dlhd.pk](https://dlhd.pk/) | DaddyLive schedule; per-channel stream pages |
+| `strumyk` | [strumyk.cfd](https://strumyk.cfd/) | Parser ready; live fetch often blocked by Cloudflare |
+
+Pick sources at CLI startup, or set once:
+
+```bash
+export LIVE_TV_SOURCES=livetv,dlhd,buffsports
+livetv
+livetv list --sources livetv,dlhd
+livetv watch dlhd:1800-team-a-vs-team-b
+```
+
+Event IDs are **composite**: `{source}:{nativeId}` (legacy bare numeric IDs still map to `livetv:`).
+
+Spike notes: [docs/spikes/](docs/spikes/).
+
+---
+
 ## How it works
 
-livetv.sx lists sports events with three kinds of streams:
+livetv.sx (and other sources) list sports events with stream types such as:
 
 - **AceStream** (`acestream://HASH`) — P2P BitTorrent streams, best quality (up to 8 Mbps). Most big football/F1/NBA matches use this. Requires an AceStream engine.
 - **Web embeds** (Aliez, Voodc, etc.) — Third-party iframe players embedded in a webpage. No extra software needed; quality varies. These are opened in your browser (Stremio shows an "Open" button; the CLI launches your system browser).
@@ -135,6 +159,7 @@ The easiest way to get everything running: one command starts the AceStream engi
 
 ```bash
 docker compose up -d
+# or: podman compose up -d
 ```
 
 Services:
@@ -216,7 +241,11 @@ You now have a **LiveTV.sx Sports** catalog in your Board.
 
 | Variable | Default | Description |
 |---|---|---|
+| `LIVE_TV_SOURCES` | all registered | Comma-separated source ids for CLI / add-on |
 | `LIVETV_BASE_URL` | `https://livetv.sx` | Switch to a mirror if the main domain is blocked |
+| `BUFFSPORTS_BASE_URL` | `https://buffsports.io` | BuffStreams base URL |
+| `DLHD_BASE_URL` | `https://dlhd.pk` | DaddyLive base URL |
+| `STRUMYK_BASE_URL` | `https://strumyk.cfd` | Strumyk base URL |
 | `PORT` | `7000` | Port for the add-on server |
 | `ACE_ENGINE_HOST` | `127.0.0.1` | AceStream engine host (use `acestream` with Docker Compose) |
 | `ACE_ENGINE_PORT` | `6878` | AceStream engine port |
@@ -239,7 +268,7 @@ Useful for quick lookups, scripting, or watching in VLC without Stremio.
 
 Pushing a git tag matching `v*` (for example `v0.2.0`) runs [`.github/workflows/release.yml`](.github/workflows/release.yml): cross-compiled **`livetv`** and **`livetv-supervisor`** for macOS arm64, macOS x64, Linux x64, and Windows x64, packaged as `.tar.gz` / `.zip` plus `SHA256SUMS`. Friends can use [Quick install (copy and paste)](#quick-install-copy-and-paste) instead of downloading archives by hand.
 
-Extract both executables from the archive into the same directory. **`livetv-supervisor`** checks `http://127.0.0.1:6878/…` (or `ACE_ENGINE_HOST` / `ACE_ENGINE_PORT`); if the engine is down it tries **`docker run`** with [`jopsis/acestream:latest`](https://hub.docker.com/r/jopsis/acestream) (see [docs/ENGINE-REDISTRIBUTION.md](docs/ENGINE-REDISTRIBUTION.md) — engine bits are not bundled in these zips). Then it runs **`livetv`** with the same arguments as `bun run cli`. Run `./livetv-supervisor` (or `livetv-supervisor.exe` on Windows) instead of `livetv` when you want that behavior; use `./livetv` alone if you already started an engine (e.g. `docker compose up -d`).
+Extract both executables from the archive into the same directory. **`livetv-supervisor`** checks `http://127.0.0.1:6878/…` (or `ACE_ENGINE_HOST` / `ACE_ENGINE_PORT`); if the engine is down it tries **`docker run`** or **`podman run`** with [`jopsis/acestream:latest`](https://hub.docker.com/r/jopsis/acestream) (see [docs/ENGINE-REDISTRIBUTION.md](docs/ENGINE-REDISTRIBUTION.md) — engine bits are not bundled in these zips). On macOS, Podman needs `podman machine start` first. Then it runs **`livetv`** with the same arguments you passed. Run `./livetv-supervisor` (or `livetv-supervisor.exe` on Windows) instead of `livetv` when you want that behavior; use `./livetv` alone if you already started an engine (e.g. `docker compose up -d` or `podman compose up -d`).
 
 Build release binaries locally:
 
@@ -256,15 +285,16 @@ bun run compile           # dist/livetv + dist/livetv-supervisor
 ### Interactive mode
 
 ```bash
-bun run cli
+livetv
 # or, from a release / after compile: ./livetv-supervisor
 ```
 
 What it does:
 
-1. Checks if AceStream engine is available and warns you if not
-2. Fetches all events with a spinner
-3. Shows a scrollable list — **live events appear first**, then upcoming sorted by time:
+1. **Source picker** — choose livetv, BuffStreams, DLHD, Strumyk (saved in `~/.config/live-tv/prefs.json`)
+2. Checks if AceStream engine is available and warns you if not
+3. Fetches events from selected sources with a spinner
+4. Sport → day → optional search → event list — **live events first**, then by time:
 
 ```
 ◆  Select an event to watch:
@@ -302,7 +332,7 @@ These are pipe-friendly and exit immediately.
 #### `list` — all events as JSON
 
 ```bash
-bun run cli list
+livetv list
 ```
 
 ```json
@@ -325,20 +355,20 @@ bun run cli list
 **Filter to live events only:**
 
 ```bash
-bun run cli list | jq '[.[] | select(.isLive == true)]'
+livetv list | jq '[.[] | select(.isLive == true)]'
 ```
 
 **Find events by team or league:**
 
 ```bash
-bun run cli list | jq '[.[] | select(.name | ascii_downcase | contains("real madrid"))]'
-bun run cli list | jq '[.[] | select(.sport | ascii_downcase | contains("premier league"))]'
+livetv list | jq '[.[] | select(.name | ascii_downcase | contains("real madrid"))]'
+livetv list | jq '[.[] | select(.sport | ascii_downcase | contains("premier league"))]'
 ```
 
 **Show just names and times:**
 
 ```bash
-bun run cli list | jq '.[] | "\(.time)  \(.name)  (\(.sport))"' -r
+livetv list | jq '.[] | "\(.time)  \(.name)  (\(.sport))"' -r
 ```
 
 Example output:
@@ -357,7 +387,7 @@ Example output:
 #### `streams <event-id>` — resolved stream URLs for an event
 
 ```bash
-bun run cli streams 378053369
+livetv streams 378053369
 ```
 
 ```json
@@ -396,13 +426,13 @@ For a match with AceStream links:
 Get just the best playable URL:
 
 ```bash
-bun run cli streams 371315132 | jq -r '.[0].url'
+livetv streams 371315132 | jq -r '.[0].url'
 ```
 
 #### `watch <event-id>` — open best stream in VLC immediately
 
 ```bash
-bun run cli watch 378053369
+livetv watch 378053369
 ```
 
 Picks the highest-bitrate AceStream Engine URL and opens VLC. No prompts.
@@ -424,16 +454,16 @@ https://livetv.sx/enx/eventinfo/378053369_metalurh_zp_victoria/
 Open the first live football event automatically:
 
 ```bash
-ID=$(bun run cli list | jq -r '[.[] | select(.isLive and (.sport | ascii_downcase | contains("football")))] | .[0].id')
-bun run cli watch "$ID"
+ID=$(livetv list | jq -r '[.[] | select(.isLive and (.sport | ascii_downcase | contains("football")))] | .[0].id')
+livetv watch "$ID"
 ```
 
 Print all stream URLs for tonight's Champions League match:
 
 ```bash
-bun run cli list \
+livetv list \
   | jq -r '[.[] | select(.name | ascii_downcase | contains("champions league"))] | .[0].id' \
-  | xargs -I{} bun run cli streams {} \
+  | xargs -I{} livetv streams {} \
   | jq -r '.[].url'
 ```
 
@@ -513,7 +543,7 @@ live-tv/
 ## Troubleshooting
 
 **No streams showing for an event**  
-Streams are added just before and during the event. Check back 15–30 min before kickoff. Run `bun run cli streams <id>` to see what's currently available.
+Streams are added just before and during the event. Check back 15–30 min before kickoff. Run `livetv streams <id>` to see what's currently available.
 
 **AceStream streams not playing in Stremio**  
 Stremio cannot play `acestream://` URIs directly — its built-in player needs a plain HTTP URL. Use the **"AceStream Engine"** stream variant which serves via `http://localhost:6878/ace/getstream?…`. Make sure the engine is running:
@@ -522,7 +552,7 @@ Stremio cannot play `acestream://` URIs directly — its built-in player needs a
 curl -s "http://localhost:6878/webui/api/service?method=get_version"
 ```
 
-If it's not running, start it with Docker Compose (`docker compose up -d`) or standalone Docker.
+If it's not running, start it with Docker Compose (`docker compose up -d`) or Podman (`podman machine start` then `podman compose up -d`).
 
 **Web embed streams (Aliez, Voodc) don't play in Stremio**  
 These are HTML embed pages — they can't be played as direct video streams. In Stremio, they appear with an **Open** button that launches them in your browser. In the CLI, selecting a `🌐` stream opens your system browser automatically.
